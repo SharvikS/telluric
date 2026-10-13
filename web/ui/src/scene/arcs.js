@@ -46,7 +46,7 @@ void main() {
   d = dl > 1e-6 ? d / dl : vec2(1.0, 0.0);
   vec2 nrm = vec2(-d.y, d.x);
   float hl = iE.x;
-  float w = uWidth * (0.75 + 1.1 * iC.w + 0.8 * iE.y) * (hl > 0.5 ? 1.7 : 1.0) * (1.0 + iD.z * 0.8);
+  float w = uWidth * (0.75 + 0.7 * iC.w + 0.5 * iE.y) * (hl > 0.5 ? 1.7 : 1.0) * (1.0 + iD.z * 0.8);
   c.xy += nrm * aCorner.y * (w * 2.0 / uViewport) * c.w;
   gl_Position = c;
   vUv = vec2(tc, aCorner.y);
@@ -81,7 +81,7 @@ void main() {
   float a = vColor.a;
   float body = soft * 0.32 + core * 0.95;
   vec3 col = vColor.rgb * a * body * mix(0.55, 1.25, dash) * ends * pulse * 0.56;
-  col += vColor.rgb * vFlash * core * 0.5 * ends;
+  col += vColor.rgb * vFlash * core * 0.4 * ends;
   outColor = vec4(col, 1.0);
 }`;
 
@@ -145,7 +145,7 @@ export class Arcs {
 
   flash(id, amount) {
     const it = this.items.get(id);
-    if (it) it.flash = Math.min(1.2, it.flash + amount);
+    if (it) it.flash = Math.min(0.7, it.flash + amount);
   }
 
   /** Rebuild instance data. `focus` = { ep, proc, cc, active } for highlighting. */

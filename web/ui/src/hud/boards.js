@@ -13,6 +13,7 @@ class Board {
     this.rows = new Map();
     this.onClick = onClick;
     this.selected = null;
+    this.smooth = new Map(); // key → smoothed rate used for ranking
     this.emptyEl = document.createElement('div');
     this.emptyEl.className = 'empty';
     this.emptyEl.textContent = 'awaiting traffic';
@@ -20,6 +21,26 @@ class Board {
   }
 
   render(items, total) {
+    // Rank by an exponentially smoothed rate, and only let an item overtake
+    // the one above it by a clear margin: steady lists, real changes still move.
+    const seen = new Set();
+    for (const it of items) {
+      const prev = this.smooth.get(it.key);
+      const s = prev == null ? it.rate : prev * 0.7 + it.rate * 0.3;
+      this.smooth.set(it.key, s);
+      it.rank = s;
+      seen.add(it.key);
+    }
+    for (const k of this.smooth.keys()) if (!seen.has(k)) this.smooth.delete(k);
+    const prevOrder = this.order || [];
+    const pos = new Map(prevOrder.map((k, i) => [k, i]));
+    items.sort((a, b) => {
+      const pa = pos.has(a.key) ? pos.get(a.key) : 1e9, pb = pos.has(b.key) ? pos.get(b.key) : 1e9;
+      const hi = Math.max(a.rank, b.rank), lo = Math.min(a.rank, b.rank);
+      if (hi > 0 && (hi - lo) / hi < 0.18 && pa !== pb) return pa - pb;
+      return b.rank - a.rank || b.bytes - a.bytes;
+    });
+    this.order = items.map((it) => it.key);
     const cap = Math.max(1, Math.floor(this.el.clientHeight / ROW_H));
     const shown = items.slice(0, cap);
     const max = shown.reduce((m, x) => Math.max(m, x.rate), 1);

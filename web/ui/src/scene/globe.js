@@ -37,38 +37,42 @@ ${GLSL_COMMON}
 const float LAND_RANGE = 16.0;
 const float BORDER_RANGE = 8.0;
 
-// Distance (in cell units) from (lat, lon) to the nearest dot of a
-// latitude-corrected lattice with \`rings\` rows; returns the dot centre's uv.
-float lattice(float lat, float lon, float rings, out vec2 cuv, out float cellId) {
-  float dLat = PI / rings;
-  float i = floor((lat + 0.5 * PI) / dLat);
-  float latC = -0.5 * PI + (i + 0.5) * dLat;
-  float nDots = max(1.0, floor(TAU * cos(latC) / dLat));
-  float j = floor((lon + PI) / TAU * nDots);
-  float lonC = -PI + (j + 0.5) * TAU / nDots;
-  cuv = vec2(lonC / TAU + 0.5, 0.5 - latC / PI);
-  cellId = i * 4099.0 + j;
-  vec2 d = vec2((lon - lonC) * cos(lat), lat - latC) / dLat;
-  return length(d);
+// Dot-matrix land as a quadtree lattice. Level 0 is a latitude-corrected
+// lattice with \`rings\` rows; each level splits every cell into 2×2. As the
+// camera closes in, dots undergo "mitosis": the parent shrinks while its four
+// aligned children grow, so LOD changes are geometric, never two patterns
+// alpha-blended over each other.
+struct Cell { float latC; float lonC; float dLat; float dLon; vec2 q; float id; };
+
+Cell baseCell(float lat, float lon, float rings) {
+  Cell c;
+  c.dLat = PI / rings;
+  float i = floor((lat + 0.5 * PI) / c.dLat);
+  c.latC = -0.5 * PI + (i + 0.5) * c.dLat;
+  float nDots = max(1.0, floor(TAU * cos(c.latC) / c.dLat));
+  c.dLon = TAU / nDots;
+  float j = floor((lon + PI) / c.dLon);
+  c.lonC = -PI + (j + 0.5) * c.dLon;
+  c.q = vec2((lon - c.lonC) / c.dLon, (lat - c.latC) / c.dLat); // [-0.5, 0.5]²
+  c.id = i * 4099.0 + j;
+  return c;
 }
 
-float landAt(vec2 uv) {
-  return textureLod(uLand, uv, 0.0).r;
-}
-
-// Coverage of the dot lattice at one LOD; fades to the mean coverage when the
-// lattice gets too fine to resolve (prevents shimmer when zoomed out).
-float dots(float lat, float lon, float rings, float pixRad, out float hot) {
-  vec2 cuv; float cid;
-  float dist = lattice(lat, lon, rings, cuv, cid);
-  float pix = pixRad / (PI / rings);           // pixel size in cell units
-  float r = 0.26;
-  float aa = max(pix * 0.8, 1e-4);
+// Coverage of the level-L dots of cell c with radius r (in sub-cell units).
+float levelDots(Cell c, float L, float r, float lat, float pixCells, out float hot) {
+  float s = exp2(-L);
+  vec2 k = floor((c.q + 0.5) / s);
+  vec2 ctr = -0.5 + (k + 0.5) * s;
+  vec2 d = (c.q - ctr) / s;
+  d.x *= c.dLon * cos(lat) / c.dLat;              // physical aspect of the cell
+  float dist = length(d);
+  float aa = max(pixCells / s * 0.8, 1e-4);
   float cov = 1.0 - smoothstep(r - aa, r + aa, dist);
-  cov = mix(cov, 3.14159 * r * r, smoothstep(0.25, 0.6, pix));
-  float isLand = step(0.5, landAt(cuv));
-  float h = hash12(vec2(cid, rings));
-  // A few dots flicker like live telemetry.
+  cov = mix(cov, 3.14159 * r * r, smoothstep(0.25, 0.6, pixCells / s));
+  float slat = c.latC + ctr.y * c.dLat, slon = c.lonC + ctr.x * c.dLon;
+  vec2 suv = vec2(slon / TAU + 0.5, 0.5 - slat / PI);
+  float isLand = step(0.5, textureLod(uLand, suv, 0.0).r);
+  float h = hash12(vec2(c.id, L * 17.0 + k.x * 3.0 + k.y * 7.0));
   hot = step(0.985, fract(h * 37.0 + floor(uTime * 0.7 + h * 13.0) * 0.618));
   return cov * isLand * (0.7 + 0.3 * h);
 }
@@ -112,15 +116,18 @@ void main() {
 
   // ── land ──
   col = mix(col, vec3(0.006, 0.022, 0.029), land);
-  float hotA = 0.0, hotB = 0.0;
   float rings = uDotRings;
-  float pixA = pixRad / (PI / rings);
-  // Two lattice LODs: a finer one fades in as the camera closes in.
-  float fine = 1.0 - smoothstep(0.026, 0.040, pixA);
-  float dA = dots(lat, lon, rings, pixRad, hotA);
-  float dB = fine > 0.0 ? dots(lat, lon, rings * 3.0, pixRad, hotB) : 0.0;
-  float dotCov = mix(dA, dB, fine);
-  float hot = mix(hotA, hotB, fine);
+  Cell cell = baseCell(lat, lon, rings);
+  float pixCells = pixRad / cell.dLat;            // one pixel, in level-0 cell units
+  // Target ~11 px per dot cell: pick the level, split by mitosis in between.
+  float Lf = clamp(log2(1.0 / (pixCells * 11.0)), 0.0, 2.0);
+  float L0 = floor(Lf), split = smoothstep(0.15, 0.85, Lf - L0);
+  float hotA = 0.0, hotB = 0.0;
+  float dotR = 0.27;
+  float dA = levelDots(cell, L0, dotR * (1.0 - split), lat, pixCells, hotA);
+  float dB = split > 0.0 && L0 < 2.0 ? levelDots(cell, L0 + 1.0, dotR * split, lat, pixCells, hotB) : 0.0;
+  float dotCov = max(dA, dB);
+  float hot = max(hotA * step(0.01, dA), hotB * step(0.01, dB));
 
   // Country lookup (nearest) and traffic heat.
   ivec2 ci = ivec2(clamp(uv * uCountrySize, vec2(0.0), uCountrySize - 1.0));

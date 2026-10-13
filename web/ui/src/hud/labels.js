@@ -105,7 +105,7 @@ export class Labels {
     // Home tag first: it has priority.
     const home = this.store.home;
     if (home && hs.visible) {
-      const t = `HOME · ${(home.city || '').toUpperCase()}`;
+      const t = home.city ? `HOME · ${home.city.toUpperCase()}` : 'HOME';
       if (this.home.txt.textContent !== t) this.home.txt.textContent = t;
       this.place(this.home, hs.x, hs.y, (t.length) * 6.4 + 16, placed, W, H, 1, [[22, 14], [-22, 14], [22, -40]]);
     } else {
