@@ -49,6 +49,7 @@ svg { display: block; flex: none; }
 }
 
 /* Theme cross-fade fallback (no View Transitions). */
+html.theme-switching *, html.theme-switching *::before, html.theme-switching *::after { transition: none !important; }
 html.theme-xfade *, html.theme-xfade *::before, html.theme-xfade *::after {
   transition: background-color 280ms var(--ease-in-out), border-color 280ms var(--ease-in-out),
     color 280ms var(--ease-in-out), fill 280ms var(--ease-in-out), box-shadow 280ms var(--ease-in-out) !important;

@@ -30,12 +30,16 @@ export function spark(el, values, color = 'var(--accent)', { w = 96, h = 32, fil
     svg.style.overflow = 'visible';
     const gid = `sg${Math.random().toString(36).slice(2, 8)}`;
     svg.innerHTML = `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity=".22"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>
-      <path class="a" fill="url(#${gid})"/><path class="l" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>`;
+      <path class="g" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 3" opacity=".35" vector-effect="non-scaling-stroke"/><path class="a" fill="url(#${gid})"/><path class="l" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>`;
     el.appendChild(svg);
     el._spark = svg;
   }
   svg.style.color = color;
-  const [line, area] = sparkPaths(values, w, h, 1.5, floor, slots || values.slots || values.length);
+  const span = slots || values.slots || values.length;
+  const [line, area] = sparkPaths(values, w, h, 1.5, floor, span);
+  // History we have not seen yet: a dotted baseline rather than fake zeros.
+  const x0 = values.length > 1 && span > values.length ? ((span - values.length) / (span - 1)) * w : 0;
+  svg.querySelector('.g').setAttribute('d', x0 > 0.5 ? `M0 ${h - 1}H${x0.toFixed(1)}` : '');
   svg.querySelector('.l').setAttribute('d', line);
   const a = svg.querySelector('.a');
   if (fill) a.setAttribute('d', area);

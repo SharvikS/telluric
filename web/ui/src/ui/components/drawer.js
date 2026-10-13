@@ -90,9 +90,10 @@ export class Drawer {
       const av = this.avatar.getBoundingClientRect();
       const d = this.el.getBoundingClientRect();
       const finalLeft = innerWidth - 8 - this.el.offsetWidth;
-      const r = { left: finalLeft + (av.left - d.left), top: 8 + (av.top - d.top), width: av.width };
+      const r = { left: finalLeft + (av.left - d.left), top: 8 + (av.top - d.top), width: av.width, height: av.height };
       const settle = wasOpen ? 0 : 180;
-      const tx = r.left - (from.x - 8), ty = r.top - (from.y - 8);
+      // The dot scales about its centre, so travel centre to centre.
+      const tx = r.left + r.width / 2 - from.x, ty = r.top + r.height / 2 - from.y;
       const s = r.width / 16;
       const a = animate(dot, [
         { transform: 'translate(0,0) scale(1)', borderRadius: '50%', opacity: 1 },

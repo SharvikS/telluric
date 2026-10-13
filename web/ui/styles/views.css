@@ -40,7 +40,15 @@
 .alert-mini .w { color: var(--text-3); font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
 
 /* ── map ────────────────────────────────────────────────────────────────── */
-.map-view .globe-slot { position: absolute; inset: 0; border-radius: 0; }
+.map-view .globe-slot { position: absolute; inset: 0; border-radius: 0; transition: right var(--dur-slower) var(--ease-out); }
+/* On the map the drawer is an inspector: no scrim, the globe stays live and
+   re-centres in the space the drawer leaves, floating panels make room. */
+html[data-route='map'] .drawer-scrim.show { opacity: 0; pointer-events: none; }
+.map-stats, .map-zoom { transition: translate var(--dur-slower) var(--ease-out); }
+@media (min-width: 1100px) {
+  html[data-route='map'].has-drawer .map-view .globe-slot { right: calc(var(--drawer-w) + 8px); }
+  html[data-route='map'].has-drawer .map-stats, html[data-route='map'].has-drawer .map-zoom { translate: calc(-1 * var(--drawer-w) - 8px) 0; }
+}
 .glass {
   position: absolute; pointer-events: auto; border-radius: var(--r-lg); padding: 12px 14px;
   background: var(--glass); border: 1px solid var(--border-2); box-shadow: var(--shadow-lg);

@@ -146,6 +146,7 @@ export class App {
       next.el.style.opacity = '';
       if (!first) animate(next.el, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: motion.dur.slower, easing: motion.ease.out, delay: cur ? 70 : 0 });
       this.current = next;
+      document.documentElement.dataset.route = route.name;
       this.nav.setActive(route.name);
       this.topbar.setTitle(next.title);
       document.title = `${next.title} · Telluric`;
@@ -203,6 +204,7 @@ export class App {
   }
 
   onDrawer(ref) {
+    document.documentElement.classList.toggle('has-drawer', !!ref);
     if (!ref) {
       this.focusDrawer(null);
       const p = { ...this.router.current.params };
@@ -523,6 +525,7 @@ export class App {
   }
 
   click(x, y) {
+    showTip(0, 0, null);
     const id = this.world.pick(x, y, 16);
     if (id != null) {
       const ep = this.store.endpoints.get(id);

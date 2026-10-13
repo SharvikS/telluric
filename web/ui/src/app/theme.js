@@ -63,7 +63,11 @@ export class Theme extends Emitter {
       } catch {
         /* nothing running */
       }
+      // Colour transitions would play inside the live "new" image while the
+      // circle grows; switch them off until the reveal has finished.
+      const html = document.documentElement;
       const vt = document.startViewTransition(() => {
+        html.classList.add('theme-switching');
         this.apply(mode);
         this.emit('repaint');
       });
@@ -78,6 +82,7 @@ export class Theme extends Emitter {
         .catch(() => {});
       vt.finished.finally(() => {
         if (this.vt === vt) this.vt = null;
+        if (!this.vt) html.classList.remove('theme-switching');
       });
       return;
     }
