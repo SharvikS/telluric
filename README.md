@@ -143,7 +143,8 @@ Telluric picks the first source that works:
 | **Cryptominers** | The Stratum mining protocol in a TCP payload. |
 | **Anomalies** | Streaming Half-Space Trees over seven per-flow features. |
 
-Every alert names the process responsible. The global threat level, the
+Alerts name the responsible process whenever there is one (an ARP spoof or
+an inbound scan comes from another device). The global threat level, the
 **DEFCON** meter, is a decayed, severity-weighted alert pressure. Details,
 thresholds and false-positive notes are in [docs/DETECTION.md](docs/DETECTION.md).
 The demo plays every scenario every four minutes.
