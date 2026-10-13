@@ -156,7 +156,9 @@ export class TopBar {
   setStatus(state, detail) {
     const st = this.app.store.status;
     const warn = st && st.warnings && st.warnings.length;
-    const dot = state === 'live' ? (warn ? 'warn' : 'live') : state === 'demo' ? 'demo' : state === 'replay' ? 'replay' : state === 'offline' ? 'bad' : 'warn';
+    // Engine warnings turn the health dot amber in every mode.
+    const base = state === 'live' ? 'live' : state === 'demo' ? 'demo' : state === 'replay' ? 'replay' : state === 'offline' ? 'bad' : 'warn';
+    const dot = warn && base !== 'bad' ? 'warn' : base;
     const label = { live: 'Engine', demo: 'Demo', replay: 'Replay', connecting: 'Connecting…', reconnecting: 'Reconnecting…', offline: 'Offline' }[state] || state;
     const extra = warn ? ` · ${warn} warning${warn > 1 ? 's' : ''}` : st && state === 'live' ? ` · ${st.version}` : '';
     const key = `${dot}|${label}|${extra}`;
@@ -240,7 +242,7 @@ export class TopBar {
       app.navigate('settings', { section: 'system' });
     });
     openPopover(this.status, h('div', { style: { width: '300px', padding: '6px' } },
-      h('div.row', { style: { marginBottom: '10px' } }, h('span', { html: `<span class="dot ${conn === 'live' ? 'live' : conn === 'demo' ? 'demo' : 'warn'}"></span>` }), h('b', conn === 'demo' ? 'Demo engine' : 'Telluric engine'), h('span.spacer'), go),
+      h('div.row', { style: { marginBottom: '10px', gap: '8px' } }, h('span', { class: `dot ${st && st.warnings && st.warnings.length ? 'warn' : conn === 'live' ? 'live' : conn === 'demo' ? 'demo' : 'warn'}` }), h('b', conn === 'demo' ? 'Demo engine' : 'Telluric engine'), h('span.spacer'), go),
       h('dl.kv', { style: { gridTemplateColumns: '96px 1fr', fontSize: '12px', rowGap: '5px' }, html: rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') }),
       warns,
       st ? h('div.subtle', { style: { fontSize: '11px', marginTop: '10px' } }, `Reported ${dateTime(st.ts)}`) : null));

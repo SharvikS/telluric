@@ -31,10 +31,14 @@ export class History {
     const from = now - r.ms;
     const sec = this.store.history;
     const secFrom = sec.length ? sec[0].ts : Infinity;
-    if (secFrom <= from + 2000 || r.ms <= RANGES['15m'].ms) {
+    const minAll = this.store.historyMin;
+    const minFrom = minAll.length ? minAll[0].ts : Infinity;
+    // Seconds when they cover the range, or reach further back than the
+    // minute averages (a freshly started engine has no minutes yet).
+    if (secFrom <= from + 2000 || r.ms <= RANGES['15m'].ms || secFrom <= minFrom) {
       return { samples: sec.filter((s) => s.ts >= from), step: 1000, from, to: now };
     }
-    const mins = this.store.historyMin.filter((s) => s.ts >= from);
+    const mins = minAll.filter((s) => s.ts >= from);
     const lastMin = mins.length ? mins[mins.length - 1].ts + 60e3 : from;
     const tail = sec.filter((s) => s.ts >= lastMin);
     if (tail.length) mins.push(average(tail));

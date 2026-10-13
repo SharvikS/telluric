@@ -55,7 +55,7 @@
   transition: border-color var(--dur-fast), background-color var(--dur-fast), color var(--dur-fast);
 }
 .pill:hover { border-color: var(--border-3); color: var(--text); }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
 .dot.live { background: var(--success); color: var(--success); animation: pulse-ring 2s var(--ease-out) infinite; }
 .dot.demo { background: var(--accent); color: var(--accent); animation: pulse-ring 2.4s var(--ease-out) infinite; }
 .dot.replay { background: #a78bfa; }

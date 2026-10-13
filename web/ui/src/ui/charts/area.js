@@ -135,6 +135,28 @@ export class AreaChart {
     }
     ctx.textAlign = 'left';
 
+    // History that starts inside the window: mark where it begins.
+    const first = all.length ? all[0].t0 : null;
+    if (first != null && first > x0 + this.span * 0.04) {
+      const fx = Math.round(X(first)) + 0.5;
+      ctx.save();
+      ctx.strokeStyle = th.border2;
+      ctx.lineWidth = dpr;
+      ctx.setLineDash([3 * dpr, 4 * dpr]);
+      ctx.beginPath();
+      ctx.moveTo(fx, padT);
+      ctx.lineTo(fx, padT + ph);
+      ctx.stroke();
+      ctx.restore();
+      if (fx > 160 * dpr) {
+        ctx.fillStyle = th.text3;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`No data before ${time(first, this.B < 60e3)}`, fx - 8 * dpr, padT + ph / 2);
+        ctx.textAlign = 'left';
+      }
+    }
+
     let hover = null;
     if (vis.length > 1) {
       ctx.save();
