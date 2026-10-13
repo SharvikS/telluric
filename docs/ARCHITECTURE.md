@@ -69,11 +69,14 @@ exactly one thing: opening and configuring the ring. Then it sheds the
 capability the old-fashioned Unix way, with **exec**:
 
 1. Clear close-on-exec on the ring's socket.
-2. On the one locked OS thread that will call `execve`, clear ambient
-   capabilities. For uid 0, also set `SECBIT_NOROOT`. A new process image is
-   built from the calling thread's credentials alone, so this works however
-   many threads the Go runtime (or cgo) has started.
-3. Set `no_new_privs`. The kernel then ignores file capabilities on exec.
+2. On the one locked OS thread that will call `execve`, clear every
+   capability set with a plain `capset`. Dropping capabilities never
+   requires privilege, and a new process image is built from the calling
+   thread's credentials alone, so this works however many threads the Go
+   runtime (or cgo) has started.
+3. Set `no_new_privs`. The kernel then ignores file capabilities on exec,
+   and intersects the new image's permitted set with the (now empty) old
+   one, even for uid 0.
 4. Re-execute itself. The new image adopts the inherited socket, maps the
    ring (that needs no privileges), confirms that `/proc/self/status` shows
    no capabilities, and refuses to run otherwise.
@@ -89,7 +92,9 @@ Tests exercise all of this against the real kernel without root. They
 re-run themselves inside an unprivileged user + network namespace
 (`unshare -Urn`). There they capture real loopback traffic through the
 ring, build and run the real helper, and read its capability sets from
-`/proc`, for both cgo and pure-Go builds.
+`/proc`, for both cgo and pure-Go builds. With the capability bounding set
+cut down to `CAP_NET_RAW` alone, the helper still captures. That is the only
+privilege it needs, and the only one `make setcap` grants.
 
 Source selection, in order: in-process ring (if the engine has `CAP_NET_RAW`),
 helper, `dumpcap`, otherwise an actionable explanation.

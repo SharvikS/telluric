@@ -24,7 +24,7 @@ $(BIN)/telluric-capture: $(HELPER_SRC)
 
 # One-time: let the helper (and only the helper) open raw sockets.
 setcap: $(BIN)/telluric-capture
-	sudo setcap cap_net_raw,cap_net_admin=ep $(BIN)/telluric-capture
+	sudo setcap cap_net_raw=ep $(BIN)/telluric-capture
 	getcap $(BIN)/telluric-capture
 
 test:

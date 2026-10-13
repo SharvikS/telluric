@@ -3,17 +3,18 @@
 // It is the only part of Telluric that needs CAP_NET_RAW, and it needs it
 // for exactly one thing: opening and configuring a TPACKET_V3 ring. The
 // moment the ring exists, the helper sets no_new_privs and re-executes
-// itself, handing the ring's socket to the new process image. Under
-// no_new_privs the kernel ignores file capabilities on execve, so the
-// process that actually reads packets is born without any privilege, on
-// every thread — no reliance on per-thread capset calls (which Go cannot
-// apply to all threads in cgo builds). The new image verifies that, then
+// itself, handing the ring's socket to the new process image. execve builds
+// the new image from one thread's credentials, so clearing that thread's
+// capabilities and setting no_new_privs (exec then ignores file
+// capabilities) means the process that actually reads packets is born
+// without any privilege, on every thread, as any user, in any build mode.
+// The new image verifies that, then
 // streams frames to stdout as pcapng (LINKTYPE_LINUX_SLL2 with direction
 // flags, plus an interface statistics block every second with kernel drop
 // counters). The engine, which parses those untrusted bytes, never runs
 // privileged either.
 //
-//	sudo setcap cap_net_raw,cap_net_admin=ep ./telluric-capture
+//	sudo setcap cap_net_raw=ep ./telluric-capture
 //	./telluric-capture -i any | wireshark -k -i -
 package main
 
@@ -58,7 +59,7 @@ func main() {
 	ring, err := capture.OpenRing(capture.RingOptions{Interface: *iface, Snaplen: *snaplen, Blocks: *blocks})
 	if errors.Is(err, capture.ErrPermission) {
 		exe, _ := os.Executable()
-		fatal(fmt.Errorf("no CAP_NET_RAW; grant it once with:\n  sudo setcap cap_net_raw,cap_net_admin=ep %s", exe))
+		fatal(fmt.Errorf("no CAP_NET_RAW; grant it once with:\n  sudo setcap cap_net_raw=ep %s", exe))
 	}
 	if err != nil {
 		fatal(err)
@@ -68,19 +69,20 @@ func main() {
 		fatal(err)
 	}
 	// execve builds the new image from the credentials of the calling
-	// thread alone, so preparing this one locked thread is enough — no
-	// matter how many threads the Go runtime (or cgo) started:
-	//   - clear ambient capabilities, which would otherwise survive exec;
-	//   - for uid 0, set SECBIT_NOROOT so exec doesn't grant root's
-	//     capabilities (needs CAP_SETPCAP; harmless to fail for non-root);
-	//   - set no_new_privs, so file capabilities are ignored on exec.
+	// thread alone, so preparing this one locked thread is enough — however
+	// many threads the Go runtime (or cgo) started. Dropping capabilities
+	// never requires privilege:
+	//   - clear this thread's ambient, permitted, effective and inheritable
+	//     capabilities;
+	//   - set no_new_privs: exec then ignores file capabilities, and the new
+	//     image's permitted set is intersected with this thread's — empty —
+	//     even for uid 0.
 	runtime.LockOSThread()
 	_ = unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0)
-	if os.Geteuid() == 0 {
-		const secbitNoRoot, secbitNoRootLocked = 1 << 0, 1 << 1
-		if err := unix.Prctl(unix.PR_SET_SECUREBITS, secbitNoRoot|secbitNoRootLocked, 0, 0, 0); err != nil {
-			fatal(fmt.Errorf("securebits: %w", err))
-		}
+	hdr := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+	var none [2]unix.CapUserData
+	if err := unix.Capset(&hdr, &none[0]); err != nil {
+		fatal(fmt.Errorf("capset: %w", err))
 	}
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		fatal(fmt.Errorf("no_new_privs: %w", err))

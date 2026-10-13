@@ -102,7 +102,7 @@ func explainPrivileges(pe *capture.PrivilegeError) {
 
   Grant it to the tiny capture helper, once:
 
-      %ssudo setcap cap_net_raw,cap_net_admin=ep %s%s
+      %ssudo setcap cap_net_raw=ep %s%s
 
   %sThe helper drops every capability right after opening its socket;
   the engine that parses packets never runs privileged.%s

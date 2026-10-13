@@ -136,7 +136,7 @@ monthly and every six hours, respectively. `--no-update` turns this off.
 Telluric picks the first source that works:
 
 1. **In-process ring.** Used when Telluric itself may open raw sockets (root, or `setcap` on the binary).
-2. **The capture helper** (`telluric-capture`). `make setcap` grants *it* `cap_net_raw,cap_net_admin`. It uses them to open its socket and then re-executes itself without them, streaming pcapng to the engine. Its output is standard, so it can also feed Wireshark: `./bin/telluric-capture | wireshark -k -i -`.
+2. **The capture helper** (`telluric-capture`). `make setcap` grants *it* `cap_net_raw`. It uses them to open its socket and then re-executes itself without them, streaming pcapng to the engine. Its output is standard, so it can also feed Wireshark: `./bin/telluric-capture | wireshark -k -i -`.
 3. **Wireshark's `dumpcap`**, when you're in the `wireshark` group.
 
 ## Detection
