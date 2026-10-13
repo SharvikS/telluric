@@ -21,7 +21,8 @@
 
 Every connection your computer makes becomes an arc to where the other end
 really is. Every packet is a comet racing along it. DNS lookups pop up over
-the cities they resolve to, labelled with the program that asked. A stack of
+the cities they resolve to, labelled with the program that asked. Run `mtr`
+and the route draws itself hop by hop across the planet. A stack of
 detectors watches the traffic for beaconing malware, generated domains, DNS
 tunnels, scans, exfiltration, leaked passwords and ARP spoofing. When
 something is wrong, the globe turns red.
@@ -56,11 +57,11 @@ The front end uses no 3D or UI library.
 | **Privilege separation** | Only a small helper ever holds `CAP_NET_RAW`. It opens the ring, then **re-executes itself under `no_new_privs`**, so the process that reads packets is born with no capabilities on any thread. The parsers that read attacker-controlled bytes never run privileged. This is Wireshark's `dumpcap` design, verified against the real kernel in CI-style tests using user namespaces. |
 | **Decoders** | IPv4/IPv6 (extension-header chains, fragments), TCP, UDP, ICMP (including the datagram quoted inside errors), ARP and DNS. All of them avoid allocation. |
 | **Names in encrypted traffic** | Passive DNS with CNAME chains and HTTPS-record hints. TLS ClientHellos reassembled across out-of-order segments, because post-quantum key shares no longer fit in one. **QUIC Initial decryption** (RFC 9001/9369 key schedule, header protection, AES-GCM, shuffled CRYPTO frames) reveals the SNI of HTTP/3. JA4 fingerprints and ECH and ML-KEM detection come from the same parse. |
-| **Engine** | A single-owner event loop with no locks on the hot path. It tracks flows, the TCP state machine and handshake RTT, and attributes traffic to processes through `/proc` and cgroups (systemd unit, Flatpak app, container). |
+| **Engine** | A single-owner event loop with no locks on the hot path. It tracks flows, the TCP state machine and handshake RTT, and attributes traffic to processes through `/proc` and cgroups (systemd unit, Flatpak app, container). Scans visit the newest processes first and stop as soon as they find what they need, so even short-lived tools get caught. It also **reconstructs traceroutes** by matching each ICMP *time exceeded* to the probe it quotes. |
 | **Geolocation** | An in-house **MaxMind DB reader** over a read-only `mmap`, using the DB-IP Lite databases. Home is found with a STUN binding request, falling back to the time zone's coordinates. |
 | **Detection** | Threat-intelligence feeds plus behavioural detectors, including streaming **Half-Space Trees**. See [below](#detection). |
 | **Transport** | An in-house **RFC 6455 WebSocket** server. JSON frames carry state; a 12-byte binary record carries each animated packet. A two-lane queue ensures a slow tab loses animation frames, never state. |
-| **Renderer** | Raw **WebGL2**. Arcs and comets are animated entirely on the GPU from instanced attributes. The HDR bloom pipeline and the procedural dot-matrix Earth come from Natural Earth data via a bespoke texture generator. |
+| **Renderer** | Raw **WebGL2**. Arcs and comets are animated entirely on the GPU from instanced attributes, about 28,000 packets in flight at 60 fps. The HDR bloom pipeline and the procedural dot-matrix Earth (dots that split as you zoom) come from Natural Earth data via a bespoke texture generator. See [docs/FRONTEND.md](docs/FRONTEND.md). |
 
 ## Numbers
 
@@ -73,6 +74,7 @@ Measured on an i7-14700F with `go test -bench`:
 | DNS response with a CNAME chain | 115 ns, 0 allocations |
 | QUIC Initial: derive keys, unprotect, decrypt | 245 ns per packet |
 | Geolocation lookup in the 127 MB DB-IP City database | **65 ns**, 0 allocations |
+| Renderer, normal load / stress test | 60 fps, ~1 ms JS per frame / ~28k packets in flight at 60 fps |
 | Static binary with the embedded UI | ~10 MB |
 
 ## Verified, not just tested
@@ -81,6 +83,7 @@ Measured on an i7-14700F with `go test -bench`:
 - **Differential testing against Wireshark.** Real `crypto/tls` ClientHellos, over TCP and inside QUIC Initials, are written to a capture. Telluric's SNI and JA4 must match Wireshark's own dissectors byte for byte, with Wireshark doing its own QUIC decryption. tshark must also parse the capture helper's pcapng stream.
 - **Fuzzing** of every parser: packets, DNS, TLS, QUIC, pcap/pcapng and MaxMind DB.
 - **The real kernel, without root.** Tests re-run themselves inside an unprivileged user + network namespace. There they capture real traffic through the `TPACKET_V3` ring and run the real capture helper, confirming from `/proc` that it holds no capabilities once capturing.
+- **Live end to end, with real clients** ([`scripts/live-e2e.sh`](scripts/live-e2e.sh), also in CI). Two network namespaces are joined by a veth pair. Telluric captures live on one side while real clients talk to real servers on the other: glibc's resolver, curl over HTTP/1.1, TLS 1.3 from OpenSSL 3.6 with its X25519MLKEM768 post-quantum share, and **HTTP/3 from ngtcp2**. The run checks names, SNI, JA4, post-quantum detection, byte counts, process attribution and DNS. It found a real bug: ngtcp2 coalesces two Initial packets per datagram. The fix ships with the captured packets as a regression fixture whose JA4 must match Wireshark's.
 - **The race detector** runs across the whole suite in CI.
 - **End-to-end tests**: crafted traffic goes in and the wire protocol comes out. Names, SNI, JA4, a 40 ms RTT and byte-exact packet totals are asserted.
 - **Security tests** check token authentication, cross-site WebSocket hijacking and DNS-rebinding defenses.
