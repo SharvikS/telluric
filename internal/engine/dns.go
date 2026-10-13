@@ -6,6 +6,7 @@ import (
 
 	"github.com/SharvikS/telluric/internal/decode"
 	"github.com/SharvikS/telluric/internal/event"
+	"github.com/SharvikS/telluric/internal/procmap"
 	"github.com/SharvikS/telluric/internal/wire"
 )
 
@@ -169,11 +170,6 @@ func (e *Engine) handleDNS(fl *flow, p *decode.Packet, _ bool) {
 	}
 	e.pdns.recent[dk] = e.now
 
-	var procID uint32
-	var procName string
-	if fl != nil && fl.proc != nil {
-		procID, procName = fl.proc.id, fl.proc.info.Name
-	}
 	ev := wire.DNSEvent{
 		TS:      e.now / 1e6,
 		Q:       qname,
@@ -184,20 +180,90 @@ func (e *Engine) handleDNS(fl *flow, p *decode.Packet, _ bool) {
 		EPs:     eps,
 		Server:  src.Addr().String(),
 		MS:      ms,
-		Proc:    procID,
 	}
 	if ev.EPs == nil {
 		ev.EPs = []uint32{}
 	}
-	e.dnsOut = append(e.dnsOut, ev)
-	e.dnsLog = append(e.dnsLog, ev)
+	h := heldDNS{
+		ev:       ev,
+		obs:      event.DNS{Client: dst, Server: src, Name: qname, QType: q.Type, Rcode: m.Rcode, Answers: answers, CNAMEs: cnames},
+		sock:     procmap.Socket{Proto: p.Proto, Local: dst, Remote: src},
+		fl:       fl,
+		deadline: e.now + dnsHoldMax,
+	}
+	switch {
+	case fl != nil && fl.proc != nil:
+		e.releaseDNS(&h, fl.proc)
+	case e.cfg.Procs == nil:
+		e.releaseDNS(&h, nil)
+	default:
+		// Hold the answer briefly: process attribution is asynchronous, and
+		// "which program looked this up" is half the story.
+		if fl == nil && len(e.extraSocks) < 512 {
+			e.extraSocks = append(e.extraSocks, h.sock)
+		}
+		if len(e.dnsHeld) < 4096 {
+			e.dnsHeld = append(e.dnsHeld, h)
+		} else {
+			e.releaseDNS(&h, nil)
+		}
+	}
+}
+
+// dnsHoldMax bounds how long an answer waits for its process.
+const dnsHoldMax = int64(900 * time.Millisecond)
+
+type heldDNS struct {
+	ev       wire.DNSEvent
+	obs      event.DNS
+	sock     procmap.Socket // the client's socket
+	fl       *flow          // nil for loopback (stub resolver) traffic
+	deadline int64
+	done     bool
+}
+
+func (e *Engine) releaseDNS(h *heldDNS, pr *proc) {
+	if pr != nil {
+		h.ev.Proc = pr.id
+		h.obs.Proc, h.obs.ProcName, h.obs.PID = pr.id, pr.info.Name, pr.info.PID
+	}
+	h.done = true
+	e.dnsOut = append(e.dnsOut, h.ev)
+	e.dnsLog = append(e.dnsLog, h.ev)
 	if len(e.dnsLog) > maxDNSLog {
 		e.dnsLog = e.dnsLog[len(e.dnsLog)-maxDNSLog:]
 	}
 	if e.cfg.Observer != nil {
-		e.cfg.Observer.DNS(e.now, &event.DNS{
-			Client: dst, Server: src, Name: qname, QType: q.Type, Rcode: m.Rcode,
-			Answers: answers, CNAMEs: cnames, Proc: procID, ProcName: procName,
-		})
+		e.cfg.Observer.DNS(e.now, &h.obs)
+	}
+}
+
+// pumpDNS releases held answers whose process became known or whose time
+// is up.
+func (e *Engine) pumpDNS() {
+	kept := e.dnsHeld[:0]
+	for i := range e.dnsHeld {
+		h := &e.dnsHeld[i]
+		switch {
+		case h.done:
+		case h.fl != nil && h.fl.proc != nil:
+			e.releaseDNS(h, h.fl.proc)
+		case e.now >= h.deadline:
+			e.releaseDNS(h, nil)
+		default:
+			kept = append(kept, *h)
+		}
+	}
+	clear(e.dnsHeld[len(kept):])
+	e.dnsHeld = kept
+}
+
+// attributeHeldDNS matches resolver results to held loopback answers.
+func (e *Engine) attributeHeldDNS(sock procmap.Socket, info *procmap.Process) {
+	for i := range e.dnsHeld {
+		h := &e.dnsHeld[i]
+		if !h.done && h.fl == nil && h.sock == sock {
+			e.releaseDNS(h, e.procFor(info))
+		}
 	}
 }

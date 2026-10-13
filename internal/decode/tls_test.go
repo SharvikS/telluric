@@ -291,6 +291,13 @@ func TestJA4MatchesWireshark(t *testing.T) {
 		t.Fatalf("tshark: %v\n%s", err, out)
 	}
 	theirs := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for i, line := range theirs {
+		// Wireshark before 4.4 labelled QUIC JA4 fingerprints "u…"; the JA4
+		// specification (and current Wireshark) uses "q".
+		if sni, ja4, ok := strings.Cut(line, "|"); ok && strings.HasPrefix(ja4, "u") {
+			theirs[i] = sni + "|q" + ja4[1:]
+		}
+	}
 	if len(theirs) != 2 {
 		t.Fatalf("tshark found %d ClientHellos:\n%s", len(theirs), out)
 	}

@@ -94,7 +94,9 @@ type Engine struct {
 	history []wire.Stats
 
 	procPending bool
-	fv          event.Flow // reusable observer view
+	dnsHeld     []heldDNS        // answers waiting for their process
+	extraSocks  []procmap.Socket // loopback DNS clients to attribute
+	fv          event.Flow       // reusable observer view
 	alertKeys   map[string]alertRef
 
 	now       int64 // engine clock (ns): wall time, or packet time if ahead
@@ -223,8 +225,10 @@ func (e *Engine) tick(wall int64) {
 	if e.now-e.lastRates >= int64(rateEvery) {
 		e.updateRates()
 	}
+	e.pumpDNS()
 	if e.now-e.lastDelta >= int64(deltaEvery) {
 		e.lastDelta = e.now
+		e.requestProcs()
 		e.flushDeltas()
 	}
 	if e.now-e.lastStats >= int64(statsEvery) {
@@ -234,7 +238,6 @@ func (e *Engine) tick(wall int64) {
 	if e.now-e.lastSweep >= int64(sweepEvery) {
 		e.lastSweep = e.now
 		e.sweep()
-		e.requestProcs()
 		if e.cfg.Observer != nil {
 			e.cfg.Observer.Tick(e.now)
 		}

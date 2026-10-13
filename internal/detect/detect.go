@@ -33,6 +33,7 @@ type Hub struct {
 	portSeen  map[string]bool
 	hstLast   int64
 	flowProcs map[uint32]procRef
+	pending   map[uint32][]func(procRef) event.Alert
 }
 
 type scored struct {
@@ -60,6 +61,19 @@ func New(set *intel.Set) *Hub {
 		torProcs:  map[string]bool{},
 		portSeen:  map[string]bool{},
 		flowProcs: map[uint32]procRef{},
+		pending:   map[uint32][]func(procRef) event.Alert{},
+	}
+}
+
+// raiseFlow raises an alert about a flow now and, when the flow's process
+// is not known yet (attribution lands a moment after the first packets),
+// again under the same key once it is. build must not retain the
+// engine-owned *event.Flow.
+func (h *Hub) raiseFlow(now int64, f *event.Flow, build func(procRef) event.Alert) {
+	p := h.procOf(f)
+	h.raise(now, build(p))
+	if p.name == "" && len(h.pending) < 4096 {
+		h.pending[f.ID] = append(h.pending[f.ID], build)
 	}
 }
 
@@ -96,7 +110,7 @@ func who(name string, pid int) string {
 
 func dest(f *event.Flow) string {
 	s := f.Remote.String()
-	if f.Name != "" && f.Name != f.Org {
+	if f.Name != "" && f.Name != f.Org && f.Name != f.Remote.Addr().String() {
 		s += " " + f.Name
 	}
 	return s
@@ -113,7 +127,12 @@ func (h *Hub) FlowStart(now int64, f *event.Flow) {
 // FlowUpdate implements event.Observer.
 func (h *Hub) FlowUpdate(now int64, f *event.Flow) {
 	if f.ProcName != "" {
-		h.flowProcs[f.ID] = procRef{f.Proc, f.ProcName, f.PID}
+		p := procRef{f.Proc, f.ProcName, f.PID}
+		h.flowProcs[f.ID] = p
+		for _, build := range h.pending[f.ID] {
+			h.raise(now, build(p))
+		}
+		delete(h.pending, f.ID)
 		h.beacon.attribute(f)
 		if f.ProcName == "tor" && !h.torProcs["tor"] && (f.Remote.Port() == 9001 || f.Remote.Port() == 9030 || f.Remote.Port() == 443) {
 			h.torProcs["tor"] = true
@@ -144,6 +163,7 @@ func (h *Hub) FlowUpdate(now int64, f *event.Flow) {
 // FlowEnd implements event.Observer.
 func (h *Hub) FlowEnd(now int64, f *event.Flow) {
 	delete(h.flowProcs, f.ID)
+	delete(h.pending, f.ID)
 	if f.Scope != "public" || f.Proto != decode.ProtoTCP || f.PktsIn+f.PktsOut < 4 {
 		return
 	}
@@ -193,23 +213,28 @@ func (h *Hub) ARP(now int64, a *decode.ARP, _ *capture.Frame) {
 
 // Cleartext implements event.Observer.
 func (h *Hub) Cleartext(now int64, f *event.Flow, what string) {
-	h.raise(now, event.Alert{
-		Key: fmt.Sprintf("cleartext:%s:%s", f.Remote.Addr(), what), Kind: "cleartext", Score: 78,
-		Flow: f.ID, Proc: f.Proc, Remote: f.Remote.Addr(),
-		Title:    "Password sent in clear text",
-		Detail:   fmt.Sprintf("%s → %s: %s — anyone on the path can read it", who(f.ProcName, f.PID), dest(f), what),
-		Evidence: map[string]any{"method": what},
+	id, remote, d := f.ID, f.Remote.Addr(), dest(f)
+	h.raiseFlow(now, f, func(p procRef) event.Alert {
+		return event.Alert{
+			Key: fmt.Sprintf("cleartext:%s:%s", remote, what), Kind: "cleartext", Score: 78,
+			Flow: id, Proc: p.id, Remote: remote,
+			Title:    "Password sent in clear text",
+			Detail:   fmt.Sprintf("%s → %s: %s — anyone on the path can read it", who(p.name, p.pid), d, what),
+			Evidence: map[string]any{"method": what},
+		}
 	})
 }
 
 // Miner implements event.Observer.
 func (h *Hub) Miner(now int64, f *event.Flow) {
-	p := h.procOf(f)
-	h.raise(now, event.Alert{
-		Key: "miner:" + f.Remote.String(), Kind: "miner", Score: 86, Flow: f.ID, Proc: p.id, Remote: f.Remote.Addr(),
-		Title:    "Cryptocurrency miner detected",
-		Detail:   fmt.Sprintf("%s → %s speaks the Stratum mining protocol", who(p.name, p.pid), dest(f)),
-		Evidence: map[string]any{"pool": f.Remote.String()},
+	id, remote, d := f.ID, f.Remote, dest(f)
+	h.raiseFlow(now, f, func(p procRef) event.Alert {
+		return event.Alert{
+			Key: "miner:" + remote.String(), Kind: "miner", Score: 86, Flow: id, Proc: p.id, Remote: remote.Addr(),
+			Title:    "Cryptocurrency miner detected",
+			Detail:   fmt.Sprintf("%s → %s speaks the Stratum mining protocol", who(p.name, p.pid), d),
+			Evidence: map[string]any{"pool": remote.String()},
+		}
 	})
 }
 
@@ -294,11 +319,14 @@ func (h *Hub) checkPort(now int64, f *event.Flow) {
 		return
 	}
 	h.portSeen[key] = true
-	h.raise(now, event.Alert{
-		Key: key, Kind: "port", Score: 30, Flow: f.ID, Remote: f.Remote.Addr(),
-		Title:    fmt.Sprintf("Outbound connection to port %d", f.Remote.Port()),
-		Detail:   fmt.Sprintf("→ %s: port %d is %s", dest(f), f.Remote.Port(), why),
-		Evidence: map[string]any{"port": f.Remote.Port()},
+	id, remote, d := f.ID, f.Remote, dest(f)
+	h.raiseFlow(now, f, func(p procRef) event.Alert {
+		return event.Alert{
+			Key: key, Kind: "port", Score: 30, Flow: id, Proc: p.id, Remote: remote.Addr(),
+			Title:    fmt.Sprintf("Outbound connection to port %d", remote.Port()),
+			Detail:   fmt.Sprintf("%s → %s: port %d is %s", who(p.name, p.pid), d, remote.Port(), why),
+			Evidence: map[string]any{"port": remote.Port()},
+		}
 	})
 }
 

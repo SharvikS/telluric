@@ -95,8 +95,12 @@ func (s *Source) Read(timeout time.Duration, fn func(*capture.Frame)) error {
 	}
 	s.direct(now)
 	s.out = s.out[:0]
-	kept := s.sessions[:0]
-	for _, ss := range s.sessions {
+	// Generators may spawn sessions (a beacon opens a fresh connection each
+	// period); collect those separately so the sweep below can't drop them.
+	current := s.sessions
+	s.sessions = nil
+	kept := make([]*session, 0, len(current))
+	for _, ss := range current {
 		if ss.gen != nil && !ss.gen(now, ss) {
 			ss.gen = nil
 		}
@@ -110,8 +114,7 @@ func (s *Source) Read(timeout time.Duration, fn func(*capture.Frame)) error {
 			kept = append(kept, ss)
 		}
 	}
-	clear(s.sessions[len(kept):])
-	s.sessions = kept
+	s.sessions = append(kept, s.sessions...)
 	slices.SortStableFunc(s.out, func(a, b pkt) int { return int(a.at - b.at) })
 	for _, p := range s.out {
 		f := capture.Frame{TS: p.at, Proto: p.et, HAType: capture.ARPHRDEther, HALen: 6, Data: p.data, WireLen: p.wire}

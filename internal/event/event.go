@@ -55,6 +55,7 @@ type DNS struct {
 	CNAMEs   []string
 	Proc     uint32
 	ProcName string
+	PID      int
 }
 
 // Severity of an alert.

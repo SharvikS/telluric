@@ -12,13 +12,15 @@ import (
 // ---- port scans ----
 
 type scanTrack struct {
-	ports map[uint16]int64 // inbound: our ports probed → last time
-	first int64
+	ports    map[uint16]int64 // inbound: our ports probed → last time
+	first    int64
+	reported int // peak port count already reported
 }
 
 type sweepTrack struct {
-	dests map[netip.AddrPort]int64
-	proc  procRef
+	dests    map[netip.AddrPort]int64
+	proc     procRef
+	reported int
 }
 
 type scanDet struct {
@@ -86,9 +88,10 @@ func (s *scanDet) evaluate(now int64) []event.Alert {
 			delete(s.in, ip)
 			continue
 		}
-		if len(ports) < scanPorts {
-			continue
+		if len(ports) < scanPorts || len(ports) <= t.reported {
+			continue // report the peak; a draining window is not news
 		}
+		t.reported = len(ports)
 		slices.Sort(ports)
 		where, score := "from the internet", 74
 		if ip.IsPrivate() || ip.IsLinkLocalUnicast() {
@@ -111,7 +114,8 @@ func (s *scanDet) evaluate(now int64) []event.Alert {
 			delete(s.out, key)
 			continue
 		}
-		if len(t.dests) >= sweepDests {
+		if len(t.dests) >= sweepDests && len(t.dests) > t.reported {
+			t.reported = len(t.dests)
 			out = append(out, event.Alert{
 				Key: "sweep:" + key, Kind: "scan", Score: 62, Proc: t.proc.id,
 				Title:    "This machine is sweeping the network",
@@ -175,7 +179,7 @@ func (a *arpDet) observe(now int64, p *decode.ARP) (event.Alert, bool) {
 	return event.Alert{
 		Key: "arp:" + p.SenderIP.String(), Kind: "arp-spoof", Score: score, Remote: p.SenderIP,
 		Title: title,
-		Detail: fmt.Sprintf("%s moved from %s to %s — traffic to it may be intercepted (%d flips)",
+		Detail: fmt.Sprintf("%s is being claimed by two devices, %s and %s (%d changes) — traffic to it may be intercepted",
 			p.SenderIP, macString(e.prev), macString(e.mac), e.flips),
 		Evidence: map[string]any{"ip": p.SenderIP.String(), "old_mac": macString(e.prev), "new_mac": macString(e.mac), "flips": e.flips},
 	}, true

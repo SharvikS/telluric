@@ -16,16 +16,18 @@ import (
 // smuggle data inside long, unique subdomains of one domain.
 
 type nxTrack struct {
-	ts    []int64
-	names []string
-	proc  procRef
+	ts       []int64
+	names    []string
+	proc     procRef
+	reported int // peak burst size already reported
 }
 
 type tunTrack struct {
-	subs  map[string]int64 // subdomain → last seen
-	bytes int              // total subdomain characters in the window
-	txt   int
-	proc  procRef
+	subs     map[string]int64 // subdomain → last seen
+	bytes    int              // total subdomain characters in the window
+	txt      int
+	proc     procRef
+	reported int
 }
 
 type dnsDet struct {
@@ -59,7 +61,7 @@ func (d *dnsDet) observe(now int64, ev *event.DNS) {
 			t.ts, t.names = t.ts[128:], t.names[128:]
 		}
 		if ev.ProcName != "" {
-			t.proc = procRef{ev.Proc, ev.ProcName, 0}
+			t.proc = procRef{ev.Proc, ev.ProcName, ev.PID}
 		}
 	}
 	apex := registrable(ev.Name)
@@ -83,7 +85,7 @@ func (d *dnsDet) observe(now int64, ev *event.DNS) {
 		t.txt++
 	}
 	if ev.ProcName != "" {
-		t.proc = procRef{ev.Proc, ev.ProcName, 0}
+		t.proc = procRef{ev.Proc, ev.ProcName, ev.PID}
 	}
 }
 
@@ -100,9 +102,10 @@ func (d *dnsDet) evaluate(now int64) []event.Alert {
 			delete(d.nx, client)
 			continue
 		}
-		if len(recent) < nxThreshold {
+		if len(recent) < nxThreshold || len(recent) <= t.reported {
 			continue
 		}
+		t.reported = len(recent)
 		random := 0
 		for _, n := range recent {
 			if Randomness(firstLabel(n)) >= 0.6 {
@@ -117,14 +120,14 @@ func (d *dnsDet) evaluate(now int64) []event.Alert {
 				Key: "dga:" + client, Kind: "dga", Score: 70 + int(15*frac), Proc: t.proc.id,
 				Title: "Domain generation algorithm (DGA) activity",
 				Detail: fmt.Sprintf("%s failed %d lookups of random-looking names in a minute, e.g. %s",
-					who(t.proc.name, 0), len(recent), strings.Join(samples, ", ")),
+					who(t.proc.name, t.proc.pid), len(recent), strings.Join(samples, ", ")),
 				Evidence: map[string]any{"nxdomain": len(recent), "random_fraction": math.Round(frac*100) / 100, "samples": samples},
 			})
 		case len(recent) >= 3*nxThreshold:
 			out = append(out, event.Alert{
 				Key: "nxstorm:" + client, Kind: "dga", Score: 25, Proc: t.proc.id,
 				Title:    "Storm of failed DNS lookups",
-				Detail:   fmt.Sprintf("%s: %d NXDOMAIN answers in a minute (misconfiguration or a typo-squatting probe)", who(t.proc.name, 0), len(recent)),
+				Detail:   fmt.Sprintf("%s: %d NXDOMAIN answers in a minute (misconfiguration or a typo-squatting probe)", who(t.proc.name, t.proc.pid), len(recent)),
 				Evidence: map[string]any{"nxdomain": len(recent)},
 			})
 		}
@@ -142,9 +145,10 @@ func (d *dnsDet) evaluate(now int64) []event.Alert {
 		}
 		n := len(t.subs)
 		avg := t.bytes / n
-		if n < tunUnique || avg < tunAvgLen {
+		if n < tunUnique || avg < tunAvgLen || n <= t.reported {
 			continue
 		}
+		t.reported = n
 		score := 72 + min(15, n/10)
 		if t.txt > n/2 {
 			score += 5
@@ -153,7 +157,7 @@ func (d *dnsDet) evaluate(now int64) []event.Alert {
 			Key: "tunnel:" + apex, Kind: "tunnel", Score: min(score, 89), Proc: t.proc.id,
 			Title: "DNS tunneling suspected",
 			Detail: fmt.Sprintf("%s: %d unique long subdomains of %s in a minute (average %d characters%s)",
-				who(t.proc.name, 0), n, apex, avg, map[bool]string{true: ", mostly TXT queries", false: ""}[t.txt > n/2]),
+				who(t.proc.name, t.proc.pid), n, apex, avg, map[bool]string{true: ", mostly TXT queries", false: ""}[t.txt > n/2]),
 			Evidence: map[string]any{"domain": apex, "unique": n, "avg_len": avg, "txt": t.txt},
 		})
 	}

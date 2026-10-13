@@ -22,7 +22,10 @@ func (e *Engine) handleFrame(f *capture.Frame) {
 	if f.PktType == capture.PacketOtherHost {
 		return // someone else's traffic (promiscuous capture)
 	}
-	if name := e.ifnames[f.Ifindex]; ignoredIface(name) {
+	// Container bridges and veth pairs carry traffic twice (before and after
+	// NAT). Interface indexes only mean something for live capture: a
+	// replay's indexes belong to the machine that recorded it.
+	if e.cfg.Mode == "live" && ignoredIface(e.ifnames[f.Ifindex]) {
 		return
 	}
 	p := &e.pkt
@@ -431,9 +434,22 @@ func (e *Engine) requestProcs() {
 			break
 		}
 	}
+	socks = append(socks, e.extraSocks...)
 	if len(socks) > 0 && e.cfg.Procs.Submit(socks) {
 		e.procPending = true
+		e.extraSocks = e.extraSocks[:0]
 	}
+}
+
+// procFor returns the process entity for info, creating it if needed.
+func (e *Engine) procFor(info *procmap.Process) *proc {
+	pr := e.procs[info.Key]
+	if pr == nil {
+		e.nextProc++
+		pr = &proc{id: e.nextProc, key: info.Key, info: *info, first: e.now, last: e.now, dirty: true, idleSince: e.now}
+		e.procs[info.Key] = pr
+	}
+	return pr
 }
 
 func (e *Engine) applyProcs(r procmap.WorkerResult) {
@@ -444,15 +460,14 @@ func (e *Engine) applyProcs(r procmap.WorkerResult) {
 		}
 		s := r.Sockets[i]
 		fl := e.flows[flowKey{proto: s.Proto, local: s.Local, remote: s.Remote}]
-		if fl == nil || fl.proc != nil {
+		if fl == nil {
+			e.attributeHeldDNS(s, info)
 			continue
 		}
-		pr := e.procs[info.Key]
-		if pr == nil {
-			e.nextProc++
-			pr = &proc{id: e.nextProc, key: info.Key, info: *info, first: e.now, last: e.now, dirty: true}
-			e.procs[info.Key] = pr
+		if fl.proc != nil {
+			continue
 		}
+		pr := e.procFor(info)
 		fl.proc = pr
 		pr.flows++
 		pr.idleSince = 0
