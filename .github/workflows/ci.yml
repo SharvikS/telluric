@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Wireshark (differential tests)
+        run: sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tshark >/dev/null
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - name: test (race detector)
+        run: go test -race -count=1 ./...
+      - name: fuzz smoke (10 s per target)
+        run: make fuzz FUZZTIME=10s
+      - name: benchmarks
+        run: go test -run '^$' -bench . -benchtime 200ms -benchmem ./internal/... | tee bench.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmarks
+          path: bench.txt
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: GOARCH=${{ matrix.arch }} make build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: telluric-linux-${{ matrix.arch }}
+          path: bin/
