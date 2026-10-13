@@ -113,7 +113,10 @@ func (e *enc) value(v any) {
 	}
 }
 
-type tnode struct{ child [2]*tnode; data int } // data ≥ 0: leaf pointing at a data offset
+type tnode struct {
+	child [2]*tnode
+	data  int
+} // data ≥ 0: leaf pointing at a data offset
 
 func build(t *testing.T, recordSize int, nets map[string]map[string]any) []byte {
 	t.Helper()
