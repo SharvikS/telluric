@@ -127,15 +127,44 @@ func OpenRing(opt RingOptions) (*Ring, error) {
 	if err := unix.SetsockoptTpacketReq3(fd, unix.SOL_PACKET, unix.PACKET_RX_RING, &req); err != nil {
 		return fail("PACKET_RX_RING", err)
 	}
-	r.ring, err = unix.Mmap(fd, 0, opt.BlockSize*opt.Blocks, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED|unix.MAP_POPULATE)
-	if err != nil {
-		return fail("mmap", err)
-	}
-	if r.wake, err = unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK); err != nil {
-		return fail("eventfd", err)
+	if err := r.mapRing(); err != nil {
+		return fail("map", err)
 	}
 	if err := unix.Bind(fd, &unix.SockaddrLinklayer{Protocol: htons(unix.ETH_P_ALL), Ifindex: ifindex}); err != nil {
 		return fail("bind", err)
+	}
+	return r, nil
+}
+
+func (r *Ring) mapRing() error {
+	var err error
+	r.ring, err = unix.Mmap(r.fd, 0, r.opt.BlockSize*r.opt.Blocks, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED|unix.MAP_POPULATE)
+	if err != nil {
+		return err
+	}
+	r.wake, err = unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
+	return err
+}
+
+// FD returns the packet socket, for handing the ring to another process
+// image (see telluric-capture).
+func (r *Ring) FD() int { return r.fd }
+
+// Options returns the ring's configuration (defaults filled in).
+func (r *Ring) Options() RingOptions { return r.opt }
+
+// AdoptRing maps the ring of a packet socket that was opened and
+// configured by OpenRing in an earlier process image and inherited across
+// execve. Mapping an existing ring needs no privileges.
+func AdoptRing(fd int, opt RingOptions, name string) (*Ring, error) {
+	if opt.BlockSize == 0 || opt.Blocks == 0 {
+		return nil, fmt.Errorf("capture: adopt: ring geometry required")
+	}
+	unix.CloseOnExec(fd)
+	r := &Ring{opt: opt, name: name, fd: fd, wake: -1}
+	if err := r.mapRing(); err != nil {
+		r.teardown()
+		return nil, fmt.Errorf("capture: adopt ring: %w", err)
 	}
 	return r, nil
 }

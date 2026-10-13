@@ -53,7 +53,7 @@ The front end uses no 3D or UI library.
 | Layer | What's inside |
 |---|---|
 | **Capture** | A `TPACKET_V3` memory-mapped ring: the kernel hands over 1 MiB blocks of frames, with no system call or copy per packet. Truncation happens in the kernel via a one-instruction classic BPF program. |
-| **Privilege separation** | Only a small helper ever holds `CAP_NET_RAW`. It opens the ring, then drops every capability **on every thread** and sets `no_new_privs`. The parsers that read attacker-controlled bytes never run privileged. This is Wireshark's `dumpcap` design. |
+| **Privilege separation** | Only a small helper ever holds `CAP_NET_RAW`. It opens the ring, then **re-executes itself under `no_new_privs`**, so the process that reads packets is born with no capabilities on any thread. The parsers that read attacker-controlled bytes never run privileged. This is Wireshark's `dumpcap` design, verified against the real kernel in CI-style tests using user namespaces. |
 | **Decoders** | IPv4/IPv6 (extension-header chains, fragments), TCP, UDP, ICMP (including the datagram quoted inside errors), ARP and DNS. All of them avoid allocation. |
 | **Names in encrypted traffic** | Passive DNS with CNAME chains and HTTPS-record hints. TLS ClientHellos reassembled across out-of-order segments, because post-quantum key shares no longer fit in one. **QUIC Initial decryption** (RFC 9001/9369 key schedule, header protection, AES-GCM, shuffled CRYPTO frames) reveals the SNI of HTTP/3. JA4 fingerprints and ECH and ML-KEM detection come from the same parse. |
 | **Engine** | A single-owner event loop with no locks on the hot path. It tracks flows, the TCP state machine and handshake RTT, and attributes traffic to processes through `/proc` and cgroups (systemd unit, Flatpak app, container). |
@@ -80,6 +80,7 @@ Measured on an i7-14700F with `go test -bench`:
 - **RFC test vectors**: QUIC v1 and v2 Initial key derivation and the header-protection mask (RFC 9001 A.1/A.2, RFC 9369 A.1), and the WebSocket handshake (RFC 6455 §1.3).
 - **Differential testing against Wireshark.** Real `crypto/tls` ClientHellos, over TCP and inside QUIC Initials, are written to a capture. Telluric's SNI and JA4 must match Wireshark's own dissectors byte for byte, with Wireshark doing its own QUIC decryption. tshark must also parse the capture helper's pcapng stream.
 - **Fuzzing** of every parser: packets, DNS, TLS, QUIC, pcap/pcapng and MaxMind DB.
+- **The real kernel, without root.** Tests re-run themselves inside an unprivileged user + network namespace. There they capture real traffic through the `TPACKET_V3` ring and run the real capture helper, confirming from `/proc` that it holds no capabilities once capturing.
 - **The race detector** runs across the whole suite in CI.
 - **End-to-end tests**: crafted traffic goes in and the wire protocol comes out. Names, SNI, JA4, a 40 ms RTT and byte-exact packet totals are asserted.
 - **Security tests** check token authentication, cross-site WebSocket hijacking and DNS-rebinding defenses.
@@ -132,7 +133,7 @@ monthly and every six hours, respectively. `--no-update` turns this off.
 Telluric picks the first source that works:
 
 1. **In-process ring.** Used when Telluric itself may open raw sockets (root, or `setcap` on the binary).
-2. **The capture helper** (`telluric-capture`). `make setcap` grants *it* `cap_net_raw,cap_net_admin`. It holds them for a few microseconds, then runs with no capabilities at all, streaming pcapng to the engine. Its output is standard, so it can also feed Wireshark: `./bin/telluric-capture | wireshark -k -i -`.
+2. **The capture helper** (`telluric-capture`). `make setcap` grants *it* `cap_net_raw,cap_net_admin`. It uses them to open its socket and then re-executes itself without them, streaming pcapng to the engine. Its output is standard, so it can also feed Wireshark: `./bin/telluric-capture | wireshark -k -i -`.
 3. **Wireshark's `dumpcap`**, when you're in the `wireshark` group.
 
 ## Detection

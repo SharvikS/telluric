@@ -64,15 +64,35 @@ still reported, so byte counters stay exact.
 
 Raw sockets need `CAP_NET_RAW`. Instead of running a protocol parser that
 digests attacker-controlled bytes as root, Telluric can split capture into
-`telluric-capture`, a tiny helper that does nothing but open the ring and
-stream frames to stdout as standard pcap (`LINKTYPE_LINUX_SLL2`). It holds the
-capability; the engine does not. This mirrors Wireshark's
-`dumpcap`. Telluric can use `dumpcap` itself when the user is in the
-`wireshark` group. Because the stream is ordinary pcap, it can also be piped
-into Wireshark.
+`telluric-capture`, a small helper. The helper uses its capability for
+exactly one thing: opening and configuring the ring. Then it sheds the
+capability the old-fashioned Unix way, with **exec**:
+
+1. Clear close-on-exec on the ring's socket.
+2. On the one locked OS thread that will call `execve`, clear ambient
+   capabilities. For uid 0, also set `SECBIT_NOROOT`. A new process image is
+   built from the calling thread's credentials alone, so this works however
+   many threads the Go runtime (or cgo) has started.
+3. Set `no_new_privs`. The kernel then ignores file capabilities on exec.
+4. Re-execute itself. The new image adopts the inherited socket, maps the
+   ring (that needs no privileges), confirms that `/proc/self/status` shows
+   no capabilities, and refuses to run otherwise.
+
+The process that reads packets is therefore *born* unprivileged. It then
+streams frames to stdout as pcapng (`LINKTYPE_LINUX_SLL2` with direction
+flags, plus per-second drop statistics). The engine that parses them holds
+nothing either. This mirrors Wireshark's `dumpcap`. Telluric can also use
+`dumpcap` itself when the user is in the `wireshark` group. Because the
+stream is ordinary pcapng, it can be piped into Wireshark.
+
+Tests exercise all of this against the real kernel without root. They
+re-run themselves inside an unprivileged user + network namespace
+(`unshare -Urn`). There they capture real loopback traffic through the
+ring, build and run the real helper, and read its capability sets from
+`/proc`, for both cgo and pure-Go builds.
 
 Source selection, in order: in-process ring (if the engine has `CAP_NET_RAW`),
-helper, `dumpcap`, otherwise a clear error suggesting `--demo`.
+helper, `dumpcap`, otherwise an actionable explanation.
 
 ### Decoding without allocations
 
