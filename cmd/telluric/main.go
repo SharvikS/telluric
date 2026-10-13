@@ -85,9 +85,36 @@ func main() {
 		return
 	}
 	if err := run(o); err != nil {
-		fmt.Fprintln(os.Stderr, "telluric:", err)
+		var pe *capture.PrivilegeError
+		if errors.As(err, &pe) {
+			explainPrivileges(pe)
+		} else {
+			fmt.Fprintln(os.Stderr, "telluric:", err)
+		}
 		os.Exit(1)
 	}
+}
+
+func explainPrivileges(pe *capture.PrivilegeError) {
+	const bold, dim, cyan, reset = "\033[1m", "\033[2m", "\033[36m", "\033[0m"
+	fmt.Fprintf(os.Stderr, `
+%stelluric can't see packets yet%s — capturing needs CAP_NET_RAW.
+
+  Grant it to the tiny capture helper, once:
+
+      %ssudo setcap cap_net_raw,cap_net_admin=ep %s%s
+
+  %sThe helper drops every capability right after opening its socket;
+  the engine that parses packets never runs privileged.%s
+
+  Or run Telluric with sudo, join the wireshark group to use dumpcap,
+  or explore a synthetic world right now:  %stelluric --demo%s
+
+`, bold, reset, cyan, pe.Helper, reset, dim, reset, cyan, reset)
+	for _, t := range pe.Tried {
+		fmt.Fprintf(os.Stderr, "  %stried %s%s\n", dim, t, reset)
+	}
+	fmt.Fprintln(os.Stderr)
 }
 
 func run(o options) error {

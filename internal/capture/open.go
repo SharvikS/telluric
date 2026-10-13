@@ -47,18 +47,48 @@ func Open(o Options) (Source, error) {
 	if CanCapture() {
 		return OpenRing(RingOptions{Interface: o.Interface, Snaplen: o.Snaplen})
 	}
-	var reasons []string
+	pe := &PrivilegeError{Helper: helperPath(o)}
 	s, err := OpenHelper(o)
 	if err == nil {
 		return s, nil
 	}
-	reasons = append(reasons, "helper: "+err.Error())
+	switch {
+	case strings.Contains(err.Error(), "no CAP_NET_RAW"):
+		pe.Tried = append(pe.Tried, "helper: present, not yet granted CAP_NET_RAW")
+	case errors.Is(err, exec.ErrNotFound), errors.Is(err, os.ErrNotExist):
+		pe.Tried = append(pe.Tried, "helper: not found next to telluric (run make build)")
+	default:
+		pe.Tried = append(pe.Tried, "helper: "+firstLine(err.Error()))
+	}
 	if s, err = OpenDumpcap(o); err == nil {
 		return s, nil
 	}
-	reasons = append(reasons, "dumpcap: "+err.Error())
-	return nil, fmt.Errorf("%w\n  tried: %s\n  fix:   sudo setcap cap_net_raw,cap_net_admin=ep %s   (one time)\n     or: run with sudo, or try --demo",
-		ErrPermission, strings.Join(reasons, "; "), helperPath(o))
+	if _, statErr := os.Stat("/usr/bin/dumpcap"); statErr == nil {
+		pe.Tried = append(pe.Tried, "dumpcap: installed, but this user may not run it (not in the wireshark group)")
+	} else {
+		pe.Tried = append(pe.Tried, "dumpcap: not installed")
+	}
+	return nil, pe
+}
+
+// PrivilegeError explains that no capture method could open a raw socket.
+type PrivilegeError struct {
+	Helper string   // where the capture helper lives
+	Tried  []string // one line per method tried
+}
+
+func (e *PrivilegeError) Error() string {
+	return "capture: raw sockets need CAP_NET_RAW (tried " + strings.Join(e.Tried, "; ") + ")"
+}
+
+// Unwrap makes errors.Is(err, ErrPermission) true.
+func (e *PrivilegeError) Unwrap() error { return ErrPermission }
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSuffix(s[:i], ";")
+	}
+	return s
 }
 
 // OpenFile replays a pcap or pcapng file. With realtime set, frames are
