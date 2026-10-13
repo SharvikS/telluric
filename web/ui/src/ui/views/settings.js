@@ -2,6 +2,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { segmented, toggle } from '../components/controls.js';
 import { View } from './overview.js';
+import { motion } from '../../app/motion.js';
 import { esc, integer, count, duration, dateTime, ago } from '../../util/format.js';
 
 /** Settings and system status. */
@@ -39,11 +40,16 @@ export class SettingsView extends View {
     });
     app.prefs.on('change', (k) => { if (k === 'theme') themeSeg.set(app.prefs.get('theme')); });
 
-    const card = (id, title, desc, ...rows) => h(`div.card.set-card#set-${id}`, h('h3', title), desc ? h('p.desc', desc) : null, ...rows);
+    const sections = [];
+    const card = (id, title, desc, ...rows) => {
+      sections.push([id, title]);
+      return h(`div.card.set-card#set-${id}`, { 'data-section': id }, h('h3', title), desc ? h('p.desc', desc) : null, ...rows);
+    };
     this.sys = h('div');
+    this.toc = h('nav.set-toc', { 'aria-label': 'Settings sections' });
     this.el.appendChild(h('div.page',
       h('div.view-head', h('div', h('h1', 'Settings'), h('p', 'Preferences are stored in this browser. The engine’s own configuration lives in its command-line flags.'))),
-      h('div.settings.stagger',
+      h('div.set-layout', this.toc, h('div.settings.stagger',
         card('appearance', 'Appearance', null,
           this.row('Theme', 'Follow the system, or pick one.', themeSeg.el),
           this.row('Sidebar', 'Collapse to icons for more room.', this.sw('navCollapsed', 'Collapse sidebar'))),
@@ -68,18 +74,63 @@ export class SettingsView extends View {
         card('system', 'System status', 'Live health report from the engine (refreshed every 2 seconds).', this.sys),
         card('about', 'About', null,
           this.row('Telluric', 'Your machine’s live network traffic on a 3D globe.', h('a.btn.sm', { href: 'https://github.com/SharvikS/telluric', target: '_blank', rel: 'noopener', html: `${icon('external')}<span>GitHub</span>` })),
-          this.credits = h('div.set-row', h('div.sr-text', h('div.sr-title', 'Credits'), h('div.sr-desc', { html: 'Map data © Natural Earth (public domain) · IP geolocation by <a href="https://db-ip.com" target="_blank" rel="noopener">DB-IP</a> (CC BY 4.0) · Inter and JetBrains Mono (SIL Open Font License)' })))))));
+          this.credits = h('div.set-row', h('div.sr-text', h('div.sr-title', 'Credits'), h('div.sr-desc', { html: 'Map data © Natural Earth (public domain) · IP geolocation by <a href="https://db-ip.com" target="_blank" rel="noopener">DB-IP</a> (CC BY 4.0) · Inter and JetBrains Mono (SIL Open Font License)' }))))))));
+    this.buildToc(sections);
+  }
+
+  /** "On this page" index with a sliding marker that follows the scroll. */
+  buildToc(sections) {
+    this.ind = h('i.ind');
+    this.toc.append(h('div.caps', 'On this page'), this.ind);
+    this.tocItems = new Map();
+    for (const [id, title] of sections) {
+      const b = h('button', { type: 'button' }, title);
+      b.addEventListener('click', () => this.scrollTo(id));
+      this.toc.appendChild(b);
+      this.tocItems.set(id, b);
+    }
+    this.el.addEventListener('scroll', () => this.spy(), { passive: true });
+    requestAnimationFrame(() => this.spy());
+  }
+
+  scrollTo(id, flash = false) {
+    const el = this.el.querySelector(`#set-${id}`);
+    if (!el) return;
+    const top = el.getBoundingClientRect().top - this.el.getBoundingClientRect().top + this.el.scrollTop - 16;
+    this.el.scrollTo({ top, behavior: motion.reduced ? 'auto' : 'smooth' });
+    this.setActive(id);
+    this.lockUntil = performance.now() + 700;
+    if (flash) el.animate?.([{ boxShadow: '0 0 0 0 var(--accent-ring)' }, { boxShadow: '0 0 0 4px var(--accent-ring)' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 1200 });
+  }
+
+  spy() {
+    if (performance.now() < (this.lockUntil || 0)) return;
+    const top = this.el.getBoundingClientRect().top;
+    const atEnd = this.el.scrollTop + this.el.clientHeight >= this.el.scrollHeight - 4;
+    let cur = null;
+    for (const id of this.tocItems.keys()) {
+      const el = this.el.querySelector(`#set-${id}`);
+      if (el && el.getBoundingClientRect().top - top < this.el.clientHeight * 0.3) cur = id;
+    }
+    if (atEnd) cur = [...this.tocItems.keys()].pop();
+    this.setActive(cur || this.tocItems.keys().next().value);
+  }
+
+  setActive(id) {
+    if (this.active === id) return;
+    this.active = id;
+    for (const [k, b] of this.tocItems) b.classList.toggle('on', k === id);
+    const b = this.tocItems.get(id);
+    if (b) {
+      this.ind.style.transform = `translateY(${b.offsetTop}px)`;
+      this.ind.style.height = `${b.offsetHeight}px`;
+    }
   }
 
   show(params) {
     this.refresh();
-    if (params.section) {
-      const el = this.el.querySelector(`#set-${params.section}`);
-      if (el) setTimeout(() => {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        el.animate?.([{ boxShadow: '0 0 0 0 var(--accent-ring)' }, { boxShadow: '0 0 0 4px var(--accent-ring)' }, { boxShadow: '0 0 0 0 transparent' }], { duration: 1200 });
-      }, 120);
-    }
+    if (params.section) setTimeout(() => this.scrollTo(params.section, true), 120);
+    else requestAnimationFrame(() => this.spy());
   }
 
   refresh() {

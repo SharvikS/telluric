@@ -103,13 +103,19 @@ kbd, .kbd {
 .card-link:hover svg { transform: translateX(2px); }
 
 /* ── KPI tiles ──────────────────────────────────────────────────────────── */
-.kpi { padding: 14px 16px 12px; gap: 2px; overflow: hidden; }
+.kpi { padding: 14px 16px 12px; gap: 2px; overflow: hidden; container-type: inline-size; }
 .kpi .kpi-label { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--text-xs); font-weight: 500; }
 .kpi .kpi-label svg { width: 14px; height: 14px; color: var(--text-3); }
 .kpi .kpi-value { font-size: 26px; font-weight: 620; letter-spacing: -0.025em; line-height: 1.15; margin-top: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kpi .kpi-value small { font-size: 14px; font-weight: 500; color: var(--text-3); letter-spacing: 0; margin-left: 3px; }
 .kpi .kpi-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; min-height: 18px; }
 .kpi .kpi-spark { position: absolute; right: 12px; bottom: 12px; width: 96px; height: 34px; }
+/* Narrow tiles: the comparison note moves into the delta's tooltip and the
+   sparkline shrinks so nothing overlaps. */
+@container (max-width: 250px) {
+  .kpi .delta-note { display: none; }
+  .kpi .kpi-spark { width: 42%; height: 30px; }
+}
 .app.nodata .kpi-value, .app.nodata .kpi-foot, .app.nodata .kpi-spark { color: transparent !important; border-radius: var(--r-sm);
   background: linear-gradient(90deg, var(--skeleton-a) 0, var(--skeleton-b) 50%, var(--skeleton-a) 100%) 0 0 / 240px 100% repeat-x var(--skeleton-a); animation: shimmer 1.4s linear infinite; }
 .app.nodata .kpi-value small { color: transparent; }
@@ -336,7 +342,7 @@ kbd, .kbd {
 .chip button { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: var(--text-3); }
 .chip button:hover { background: var(--hover); color: var(--text); }
 .chip button svg { width: 12px; height: 12px; }
-.dt-frame { position: relative; flex: 1; min-height: 240px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; display: flex; flex-direction: column; }
+.dt-frame { position: relative; flex: 0 1 auto; min-height: 148px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; display: flex; flex-direction: column; }
 .dt-head { flex: none; display: flex; height: 36px; border-bottom: 1px solid var(--border); background: var(--surface-2); position: relative; z-index: 2; }
 .dt-th {
   display: flex; align-items: center; gap: 4px; padding: 0 10px; font-size: var(--text-xs); font-weight: 500; color: var(--text-3);
@@ -350,7 +356,8 @@ kbd, .kbd {
 .dt-th.sortable:not(.sorted):hover .sort { opacity: 0.35; }
 .dt-th.sorted .sort { opacity: 1; }
 .dt-th.sorted.asc .sort { transform: rotate(180deg); }
-.dt-body { position: relative; flex: 1; overflow: auto; outline: none; }
+.dt-body { position: relative; flex: 0 1 auto; min-height: 0; overflow: auto; outline: none; }
+.dt-frame.empty { flex: 1; min-height: 320px; }
 .dt-spacer { position: relative; }
 .dt-row {
   position: absolute; left: 0; right: 0; height: var(--row-h); display: flex; align-items: center; cursor: pointer;
@@ -430,3 +437,37 @@ kbd, .kbd {
 .donut-center { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; text-align: center; }
 .donut-center b { display: block; font-size: var(--text-xl); font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .donut-center small { color: var(--text-3); font-size: var(--text-2xs); }
+
+/* ── summary strip (headline numbers + distribution bar above tables) ───── */
+.summary { display: flex; flex-direction: row; align-items: stretch; flex: none; margin-bottom: var(--s-3); overflow: hidden; }
+.sum-stats { display: flex; flex: none; }
+.sum-stat { padding: 12px 20px 12px 16px; border-right: 1px solid var(--border); min-width: 112px; position: relative; }
+.sum-stat .sum-l { font-size: var(--text-xs); color: var(--text-3); white-space: nowrap; }
+.sum-stat .sum-v { font-size: var(--text-lg); font-weight: 620; letter-spacing: -0.015em; margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.2; }
+.sum-stat .sum-v small { font-size: var(--text-xs); color: var(--text-3); font-weight: 500; margin: 0 6px 0 2px; letter-spacing: 0; }
+.sum-stat .sum-v small:last-child { margin-right: 0; }
+.sum-stat.danger .sum-v { color: var(--danger); }
+.sum-stat.warning .sum-v { color: var(--warning); }
+.sum-stat.danger::before, .sum-stat.warning::before { content: ''; position: absolute; left: 0; top: 12px; bottom: 12px; width: 2px; border-radius: 1px; background: currentColor; }
+.sum-stat.danger::before { color: var(--danger); }
+.sum-stat.warning::before { color: var(--warning); }
+.sum-dist { flex: 1; min-width: 0; padding: 11px 16px 10px; display: flex; flex-direction: column; justify-content: center; gap: 7px; }
+.dist-head { display: flex; align-items: baseline; font-size: var(--text-xs); color: var(--text-2); font-weight: 500; }
+.dist-head .sub { color: var(--text-4); font-weight: 400; }
+.dist-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--active); }
+.dist-bar i { display: block; height: 100%; flex: none; cursor: pointer; transition: width var(--dur-slower) var(--ease-out), filter var(--dur-fast); }
+.dist-bar i:first-child { border-radius: 4px 0 0 4px; }
+.dist-bar i:last-child { border-radius: 0 4px 4px 0; }
+.dist-bar i:hover { filter: brightness(1.12) saturate(1.1); }
+.dist-bar i[data-seg='__other'] { cursor: default; }
+.dist-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: var(--text-xs); color: var(--text-2); overflow: hidden; max-height: 20px; }
+.dist-legend button { display: inline-flex; align-items: center; gap: 6px; padding: 1px 5px; margin: 0 -5px; border-radius: var(--r-xs); white-space: nowrap; transition: background-color var(--dur-fast), color var(--dur-fast); }
+.dist-legend button:hover { background: var(--hover); color: var(--text); }
+.dist-legend button.static { pointer-events: none; }
+.dist-legend button i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.dist-legend button b { font-weight: 500; color: var(--text-3); font-variant-numeric: tabular-nums; }
+@media (max-width: 1240px) {
+  .summary { flex-direction: column; }
+  .sum-stats { border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+  .sum-stat:last-child { border-right: 0; }
+}

@@ -1,7 +1,7 @@
 import { h } from './dom.js';
 import { icon, MARK_SMALL } from './icons.js';
 import { segmented } from './components/controls.js';
-import { openPopover, closePopover } from './components/popover.js';
+import { openPopover, closePopover, openMenu } from './components/popover.js';
 import { esc, ago, duration, integer, count, dateTime } from '../util/format.js';
 import { SEVERITY, ALERT_KINDS } from '../config.js';
 
@@ -99,6 +99,16 @@ export class TopBar {
       (v) => app.prefs.set('range', v),
     );
     this.range.el.dataset.tip = 'Time range for charts';
+    // Narrow windows: the same choice as a compact menu.
+    const RANGE_LABEL = { '5m': 'Last 5 minutes', '15m': 'Last 15 minutes', '1h': 'Last hour', '6h': 'Last 6 hours', '24h': 'Last 24 hours' };
+    this.rangeBtn = h('button.btn.sm.ghost.top-show-sm', { type: 'button', 'data-tip': 'Time range for charts' });
+    const rangeLabel = () => { this.rangeBtn.innerHTML = `${icon('clock')}<span class="num">${app.prefs.get('range')}</span>${icon('chevron-down')}`; };
+    rangeLabel();
+    app.prefs.on('change', (k) => { if (k === 'range') rangeLabel(); });
+    this.rangeBtn.addEventListener('click', () => openMenu(this.rangeBtn, [
+      { header: 'Time range' },
+      ...Object.entries(RANGE_LABEL).map(([v, label]) => ({ label, checked: app.prefs.get('range') === v, end: v, onSelect: () => app.prefs.set('range', v) })),
+    ], { align: 'end' }));
 
     this.status = h('button.pill', { type: 'button' });
     this.status.addEventListener('click', () => this.openStatus());
@@ -113,7 +123,7 @@ export class TopBar {
     help.addEventListener('click', () => app.showShortcuts());
 
     this.el = h('header.topbar', crumbs, search,
-      h('div.top-actions', this.live, h('div.top-hide-sm', this.range.el), h('div.top-sep.top-hide-sm'), this.status, this.bell, this.themeBtn, help));
+      h('div.top-actions', this.live, h('div.top-hide-sm', this.range.el), this.rangeBtn, h('div.top-sep.top-hide-sm'), this.status, this.bell, this.themeBtn, help));
     this.unread = 0;
     this.lastStatusKey = '';
   }

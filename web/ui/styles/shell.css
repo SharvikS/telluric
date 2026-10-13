@@ -167,8 +167,10 @@
 @media (max-width: 1100px) {
   .search-trigger { width: 200px; }
 }
+.top-show-sm { display: none !important; }
 @media (max-width: 960px) {
   :root { --nav-w: 64px; }
+  .top-show-sm { display: inline-flex !important; }
   .nav-label, .nav-section, .brand-name, .brand-ver { opacity: 0; }
   .nav-badge { position: absolute; left: 26px; top: 3px; min-width: 15px; height: 15px; line-height: 15px; font-size: 9.5px; padding: 0 3px; }
   .search-trigger { width: 36px; padding: 0; justify-content: center; margin-left: var(--s-3); }

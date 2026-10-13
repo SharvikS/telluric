@@ -218,6 +218,7 @@ export class OverviewView extends View {
           k.delta.className = `delta neutral ${up ? 'up' : down ? 'down' : 'flat'}`;
           k.delta.innerHTML = `${up ? icon('arrow-up') : down ? icon('arrow-down') : ''}${pct(Math.abs(d), Math.abs(d) < 0.1 ? 1 : 0)}`;
           k.note.textContent = `vs ${range} avg`;
+          k.delta.dataset.tip = `${up ? 'Up' : down ? 'Down' : 'Flat'} ${pct(Math.abs(d), 1)} versus the ${label} average`;
         }
       }
       // Threat level.

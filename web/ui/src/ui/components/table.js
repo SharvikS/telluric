@@ -9,7 +9,8 @@ const OVERSCAN = 8;
 /**
  * Virtualized data table.
  *
- * columns: [{ key, label, w (px), flex, align: 'right', visible, sort(row), html(row), text(row) }]
+ * columns: [{ key, label, w (px), flex, align: 'right', visible, hide (px: auto-hide when the table is
+ *   narrower), sort(row), html(row), text(row) }]
  * Options: rowKey(row), onOpen(row, el), filters: [{ key, label, value(row), format(v) }],
  * search(row) → haystack, sort: { key, dir }, rowClass(row), empty: { ill, title, body },
  * exportName, expand: { has(row), children(row), html(child, row) }, isNew(row).
@@ -50,7 +51,15 @@ export class DataTable {
     const colBtn = h('button.btn.sm.ghost', { type: 'button', 'data-tip': 'Columns', html: icon('columns') });
     colBtn.addEventListener('click', () => openMenu(colBtn, [
       { header: 'Columns' },
-      ...this.cols.filter((c) => c.label).map((c) => ({ label: c.label, checked: c.visible, keep: true, onSelect: () => { c.visible = !c.visible; this.relayout(); } })),
+      ...this.cols.filter((c) => c.label).map((c) => ({
+        label: c.label, checked: this.shown().includes(c), keep: true,
+        onSelect: () => {
+          // An explicit choice beats auto-hiding on narrow screens.
+          c.visible = !this.shown().includes(c);
+          c.pinned = c.visible;
+          this.relayout();
+        },
+      })),
     ]));
     const expBtn = h('button.btn.sm.ghost', { type: 'button', 'data-tip': 'Export', html: icon('download') });
     expBtn.addEventListener('click', () => openMenu(expBtn, [
@@ -73,13 +82,23 @@ export class DataTable {
     this.head.style.top = '0';
     this.body.addEventListener('scroll', () => this.schedule(), { passive: true });
     this.body.addEventListener('keydown', (e) => this.key(e));
-    new ResizeObserver(() => this.relayout()).observe(this.body);
+    new ResizeObserver(() => {
+      const w = this.body.clientWidth;
+      if (w !== this.lastW) { this.lastW = w; this.relayout(); }
+    }).observe(this.body);
     this.relayout();
+  }
+
+  /** Columns on screen: the user's choice minus low-priority columns that
+   *  step aside when the table is narrower than their `hide` width. */
+  shown() {
+    const w = this.body.clientWidth;
+    return this.cols.filter((c) => c.visible && !(c.hide && !c.pinned && w > 0 && w < c.hide));
   }
 
   /** Column pixel widths; flex columns share the remaining space. */
   widths() {
-    const vis = this.cols.filter((c) => c.visible);
+    const vis = this.shown();
     const avail = Math.max(this.body.clientWidth, 400);
     const fixed = vis.reduce((s, c) => s + (c.flex ? (c.min || 160) : c.w || 100), 0);
     const flexTotal = vis.reduce((s, c) => s + (c.flex || 0), 0);
@@ -88,7 +107,7 @@ export class DataTable {
   }
 
   relayout() {
-    const vis = this.cols.filter((c) => c.visible);
+    const vis = this.shown();
     const ws = this.widths();
     this.totalW = ws.reduce((a, b) => a + b, 0);
     this.head.innerHTML = '';
@@ -172,6 +191,7 @@ export class DataTable {
     const total = this.rows.length, shown = v.filter((r) => !r.__child).length;
     this.countEl.textContent = shown === total ? `${total.toLocaleString()} rows` : `${shown.toLocaleString()} of ${total.toLocaleString()}`;
     this.emptyEl.classList.toggle('hidden', v.length > 0);
+    this.frame.classList.toggle('empty', v.length === 0);
     this.spacer.style.height = `${v.length * this.rowH}px`;
     this.render(false);
   }
@@ -190,7 +210,7 @@ export class DataTable {
 
   render(force) {
     const o = this.o;
-    const vis = this.cols.filter((c) => c.visible);
+    const vis = this.shown();
     const ws = this.widths();
     const top = this.body.scrollTop;
     const viewH = this.body.clientHeight || 600;
