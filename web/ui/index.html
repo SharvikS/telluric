@@ -2,9 +2,106 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Telluric</title>
-<style>html,body{margin:0;height:100%;background:#02040a;color:#5ef2ff;font:14px ui-monospace,monospace;display:grid;place-items:center}</style>
+<meta name="description" content="Your machine's live network traffic, rendered on a 3D globe.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#02040a">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/JetBrainsMono-Bold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles/main.css">
 </head>
-<body><p>TELLURIC // globe renderer coming online…</p></body>
+<body>
+<canvas id="gl" aria-label="Globe of live network traffic"></canvas>
+<div id="labels"></div>
+
+<div id="hud" class="hud">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo-mark"></div>
+      <span class="logo">TELLURIC</span>
+      <span id="mode" class="badge connecting">LINKING</span>
+    </div>
+    <div class="metrics">
+      <div class="metric rx"><label>RX</label><b id="m-rx">—</b><canvas id="s-rx" width="140" height="48"></canvas></div>
+      <div class="metric tx"><label>TX</label><b id="m-tx">—</b><canvas id="s-tx" width="140" height="48"></canvas></div>
+      <div class="metric opt2"><label>PKT/S</label><b id="m-pps">—</b></div>
+      <div class="metric opt2"><label>FLOWS</label><b id="m-flows">—</b></div>
+      <div class="metric opt"><label>HOSTS</label><b id="m-eps">—</b></div>
+      <div class="metric opt"><label>COUNTRIES</label><b id="m-cc">—</b></div>
+      <div class="metric opt" id="drops"><label>DROPS</label><b id="m-drops">—</b></div>
+    </div>
+    <div class="topright">
+      <div id="defcon" class="defcon" title="Threat level: 5 = calm, 1 = critical activity">
+        <label>DEFCON</label>
+        <div class="cells"><i></i><i></i><i></i><i></i><i></i></div>
+        <b id="defcon-n">5</b>
+      </div>
+      <div class="clock">
+        <span id="clock-utc">--:--:--</span><small>UTC</small>
+        <span id="clock-local" class="loc">--:--:--</span><small class="loc">LOCAL</small>
+      </div>
+      <button class="icon-btn" id="btn-sound" title="Sound (M)">♪</button>
+      <button class="icon-btn" id="btn-help" title="Help (?)">?</button>
+    </div>
+  </header>
+
+  <div id="globe-area"></div>
+
+  <div class="col col-left">
+    <section class="panel" id="panel-procs" style="flex: 1.35">
+      <header><span class="pip"></span>Processes<span class="count" id="c-procs"></span></header>
+      <div class="body"><div class="rows" id="procs"></div></div>
+    </section>
+    <section class="panel" id="panel-countries" style="flex: 1">
+      <header><span class="pip"></span>Countries<span class="count" id="c-countries"></span></header>
+      <div class="body"><div class="rows" id="countries"></div></div>
+    </section>
+    <section class="panel" id="panel-proto" style="flex: none; height: 128px">
+      <header><span class="pip"></span>Protocol mix</header>
+      <div class="body"><div class="proto"><canvas id="proto" width="184" height="184"></canvas><div class="legend" id="proto-legend"></div></div></div>
+    </section>
+  </div>
+
+  <div class="col col-right">
+    <section class="panel" id="panel-feed" style="flex: 1.3">
+      <header><span class="pip"></span>Live feed<span class="count" id="c-feed"></span></header>
+      <div class="body"><div class="feed" id="feed"></div></div>
+    </section>
+    <section class="panel" id="panel-alerts" style="flex: 1">
+      <header><span class="pip" style="background: var(--red); box-shadow: 0 0 8px var(--red)"></span>Alerts<span class="count" id="c-alerts"></span></header>
+      <div class="body"><div class="alerts" id="alerts"></div></div>
+    </section>
+    <section class="panel minimap" id="panel-minimap" style="flex: none; height: 168px">
+      <header><span class="pip"></span>World<span class="count" id="c-world"></span></header>
+      <div class="body"><canvas id="minimap"></canvas></div>
+    </section>
+  </div>
+
+  <div class="center-bottom">
+    <section class="panel waterfall">
+      <header><span class="pip"></span>Spectrum<span class="count">bytes/s by protocol · 2 min</span></header>
+      <div class="body"><canvas id="waterfall"></canvas></div>
+    </section>
+    <div class="credits" id="credits"></div>
+  </div>
+</div>
+
+<div id="banner" class="banner"><div class="glyph"></div><div class="k" id="banner-k"></div><div class="t" id="banner-t"></div><div class="d" id="banner-d"></div></div>
+<div id="filterchip" class="filterchip"><span id="filter-text"></span><button id="filter-clear" title="Clear filter (Esc)">✕</button></div>
+<aside id="detail" class="detail"><button class="icon-btn close" id="detail-close" title="Close (Esc)">✕</button><div class="scroll" id="detail-body"></div></aside>
+<div id="tooltip" class="tooltip"></div>
+<div id="toast" class="toast"></div>
+<div id="modal-back" class="modal-back"></div>
+<div id="search" class="search">
+  <span class="prompt">/</span>
+  <input id="search-input" type="text" placeholder="search hosts, processes, countries, alerts…" autocomplete="off" spellcheck="false">
+  <ul id="search-results"></ul>
+  <div class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Enter</kbd> focus</span><span><kbd>Esc</kbd> close</span></div>
+</div>
+<div id="help" class="help"></div>
+<div id="loading" class="loading"><div>INITIALISING TELLURIC</div></div>
+
+<script type="module" src="src/main.js"></script>
+</body>
 </html>
