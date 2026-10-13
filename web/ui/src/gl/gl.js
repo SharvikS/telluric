@@ -4,11 +4,11 @@
 
 export function createContext(canvas) {
   const gl = canvas.getContext('webgl2', {
-    alpha: false,
+    alpha: true, // the composite writes premultiplied alpha: the page shows through outside the slot
     antialias: false, // we resolve our own MSAA target
     depth: false,
     stencil: false,
-    premultipliedAlpha: false,
+    premultipliedAlpha: true,
     preserveDrawingBuffer: false,
     powerPreference: 'high-performance',
   });
@@ -240,6 +240,33 @@ void main() {
 export function drawFullscreen(gl, emptyVao) {
   gl.bindVertexArray(emptyVao);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/**
+ * Overlay output in both themes. Dark: additive light (colour × k × gain).
+ * Light: premultiplied "over" (colour × a, a), a = clamp(k × alphaK).
+ */
+export const GLSL_PREMUL = `
+uniform float uLight;
+uniform float uGain;
+uniform float uAlphaK;
+vec4 premul(vec3 color, float k) {
+  float a = clamp(k * uAlphaK, 0.0, 1.0);
+  return uLight > 0.5 ? vec4(color * a, a) : vec4(color * k * uGain, a);
+}
+`;
+
+/** Per-layer theme state for GLSL_PREMUL. */
+export function layerTheme(layer, mode, cinema, { gain = 1, cinemaGain = 1.4, alphaK = 1.2 } = {}) {
+  layer.light = mode === 'light';
+  layer.gain = cinema ? cinemaGain : gain;
+  layer.alphaK = alphaK;
+}
+
+export function setPremulUniforms(gl, u, layer) {
+  gl.uniform1f(u.uLight, layer.light ? 1 : 0);
+  gl.uniform1f(u.uGain, layer.gain ?? 1);
+  gl.uniform1f(u.uAlphaK, layer.alphaK ?? 1.2);
 }
 
 /** Shared GLSL helpers, spliced into shaders that need them. */

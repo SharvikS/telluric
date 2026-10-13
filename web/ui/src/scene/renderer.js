@@ -4,17 +4,17 @@ import { Sky } from './sky.js';
 import { Globe } from './globe.js';
 
 /**
- * Owns the GL context and runs the frame:
+ * Owns the GL context and runs the frame. The canvas covers the window but
+ * the globe is drawn only inside a "slot" — a rounded rectangle that follows
+ * whichever card or panel hosts it — and the composite writes premultiplied
+ * alpha, so the page shows through everywhere else.
  *
- *   scene target (HDR, 4× MSAA)
- *     1. sky        full-screen: stars, Milky Way, atmosphere halo
+ *   scene target (HDR, 4× MSAA), viewport + scissor = slot
+ *     1. sky        background, stars, atmosphere / contact shadow
  *     2. globe      opaque, writes depth
- *     3. layers     additive, depth-tested, no depth writes (arcs, markers,
- *                   comets, orbits…) — each layer is { draw(frame) }
- *   resolve MSAA → bloom chain → composite (tone map, grain, glitch) → canvas
- *
- * Render resolution adapts to frame time; the composite always runs at full
- * canvas resolution so the HUD-adjacent edges stay crisp.
+ *     3. layers     depth-tested, no depth writes (arcs, markers, comets…)
+ *                   dark: additive light · light: premultiplied "over"
+ *   resolve MSAA → bloom chain → composite (tone curve, sRGB, slot mask) → canvas
  */
 export class Renderer {
   constructor(canvas, world) {
@@ -34,11 +34,21 @@ export class Renderer {
     this.dpr = 1;
     this.frameTimes = [];
     this.lastAdapt = 0;
+    this.light = false;
+    this.cleared = false;
   }
 
   addLayer(layer) {
     this.layers.push(layer);
     return layer;
+  }
+
+  setTheme(mode, cinema = false) {
+    this.light = mode === 'light';
+    this.sky.setTheme(mode, cinema);
+    this.globe.setTheme(mode);
+    this.post.setTheme(mode, cinema);
+    for (const l of this.layers) l.setTheme?.(mode, cinema);
   }
 
   resize(cssW, cssH, dpr) {
@@ -78,19 +88,49 @@ export class Renderer {
     this.lastAdapt = now;
   }
 
+  /** Slot rectangle in scene-target pixels (origin bottom-left). */
+  targetRect(slot) {
+    const k = this.dpr * this.scale;
+    const x = Math.max(0, Math.floor(slot.x * k));
+    const w = Math.max(1, Math.min(this.scene.width - x, Math.ceil(slot.w * k)));
+    const yTop = Math.max(0, Math.floor(slot.y * k));
+    const h = Math.max(1, Math.min(this.scene.height - yTop, Math.ceil(slot.h * k)));
+    return [x, this.scene.height - yTop - h, w, h];
+  }
+
+  /** Nothing to show: clear the canvas once and stop. */
+  clear() {
+    if (this.cleared) return;
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    this.cleared = true;
+  }
+
   render(frame) {
     const gl = this.gl;
-    frame.pixelHeight = this.scene.height;
-    frame.renderWidth = this.scene.width;
-    frame.renderHeight = this.scene.height;
-    frame.cssWidth = this.cssW;
-    frame.cssHeight = this.cssH;
+    const slot = frame.slot;
+    if (!slot || slot.alpha <= 0.001 || slot.w < 2 || slot.h < 2) {
+      this.clear();
+      return;
+    }
+    this.cleared = false;
+    const [vx, vy, vw, vh] = this.targetRect(slot);
+    frame.pixelHeight = vh;
+    frame.renderWidth = vw;
+    frame.renderHeight = vh;
 
     this.scene.bind();
-    gl.clearColor(0, 0, 0, 1);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(0, 0, 0, 0);
     gl.clearDepth(1);
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.viewport(vx, vy, vw, vh);
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(vx, vy, vw, vh);
 
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
@@ -105,15 +145,20 @@ export class Renderer {
     gl.disable(gl.CULL_FACE);
 
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE);
+    if (this.light) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    else gl.blendFunc(gl.ONE, gl.ONE);
     gl.depthMask(false);
-    for (const layer of this.layers) layer.draw(frame);
+    for (const layer of this.layers) if (layer.visible !== false) layer.draw(frame);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
     gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.SCISSOR_TEST);
 
     this.scene.finish();
     const bloom = this.post.bloom(this.scene.tex, this.scene.width, this.scene.height);
-    this.post.composite(this.scene.tex, bloom, frame, this.canvas.width, this.canvas.height);
+    const k = this.dpr;
+    const cx = slot.x * k, cw = slot.w * k, ch = slot.h * k;
+    const cy = this.canvas.height - (slot.y * k + ch);
+    this.post.composite(this.scene.tex, bloom, frame, this.canvas.width, this.canvas.height, [cx, cy, cw, ch], (slot.r || 0) * k, slot.alpha);
   }
 }

@@ -152,7 +152,7 @@ export class Camera {
  */
 export class Controls {
   constructor(el, camera, { onClick, onHover, onInteract } = {}) {
-    this.el = el;
+    this.el = null;
     this.cam = camera;
     this.onClick = onClick || (() => {});
     this.onHover = onHover || (() => {});
@@ -163,18 +163,31 @@ export class Controls {
     this.lastMove = 0;
     this.pinchDist = 0;
 
-    el.addEventListener('pointerdown', (e) => this.down(e));
-    el.addEventListener('pointermove', (e) => this.move(e));
-    el.addEventListener('pointerup', (e) => this.up(e));
-    el.addEventListener('pointercancel', (e) => this.up(e));
-    el.addEventListener('pointerleave', () => this.onHover(null, null));
-    el.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
-      this.cam.zoomBy(Math.exp(delta * 0.0012));
-      this.onInteract();
-    }, { passive: false });
-    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.h = {
+      pointerdown: (e) => this.down(e),
+      pointermove: (e) => this.move(e),
+      pointerup: (e) => this.up(e),
+      pointercancel: (e) => this.up(e),
+      pointerleave: () => { if (!this.pointers.size) this.onHover(null, null); },
+      wheel: (e) => {
+        e.preventDefault();
+        const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+        this.cam.zoomBy(Math.exp(delta * 0.0012));
+        this.onInteract();
+      },
+      contextmenu: (e) => e.preventDefault(),
+    };
+    if (el) this.attach(el);
+  }
+
+  /** Move input handling to another element (the current globe slot). */
+  attach(el) {
+    if (this.el === el) return;
+    if (this.el) for (const [k, fn] of Object.entries(this.h)) this.el.removeEventListener(k, fn);
+    this.pointers.clear();
+    this.dragging = false;
+    this.el = el;
+    if (el) for (const [k, fn] of Object.entries(this.h)) el.addEventListener(k, fn, k === 'wheel' ? { passive: false } : undefined);
   }
 
   get interacting() {

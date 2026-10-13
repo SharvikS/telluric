@@ -1,4 +1,4 @@
-import { createProgram, GLSL_COMMON } from '../gl/gl.js';
+import { createProgram, GLSL_COMMON, GLSL_PREMUL, layerTheme, setPremulUniforms } from '../gl/gl.js';
 
 // Packet comets. Each PKTS record becomes one instance in a GPU ring buffer:
 // 16 floats describing the arc, colour, size, birth time and travel
@@ -68,6 +68,7 @@ in float vK;
 in float vSide;
 in vec4 vColor;
 out vec4 outColor;
+${GLSL_PREMUL}
 void main() {
   float edge = clamp(1.0 - abs(vSide), 0.0, 1.0);
   float k = clamp(vK, 0.0, 1.0);
@@ -75,9 +76,10 @@ void main() {
   float fall = pow(k, 2.2);
   float e3 = edge * edge * edge;
   float k4 = k * k * k * k;
-  vec3 col = vColor.rgb * vColor.a * body * fall * 1.3;
-  col += mix(vColor.rgb, vec3(1.0), 0.3) * vColor.a * e3 * e3 * k4 * k4 * 0.45;
-  outColor = vec4(col, 1.0);
+  float kb = vColor.a * body * fall * 1.3;
+  float kh = vColor.a * e3 * e3 * k4 * k4 * 0.45;
+  vec3 c = mix(vColor.rgb, vec3(1.0), 0.3 * (1.0 - uLight) * kh / max(kb + kh, 1e-4));
+  outColor = premul(c, kb + kh);
 }`;
 
 const HEAD_VS = `#version 300 es
@@ -106,13 +108,15 @@ precision highp float;
 in vec2 vQ;
 in vec4 vColor;
 out vec4 outColor;
+${GLSL_PREMUL}
 void main() {
   float r2 = dot(vQ, vQ);
   if (r2 > 1.0) discard;
   float glow = exp(-r2 * 5.0);
   float core = exp(-r2 * 28.0);
-  vec3 col = vColor.rgb * glow * 0.75 + mix(vColor.rgb, vec3(1.0), 0.35) * core * 1.25;
-  outColor = vec4(col * vColor.a, 1.0);
+  float k = (glow * 0.75 + core * 1.25) * vColor.a;
+  vec3 c = mix(vColor.rgb, vec3(1.0), 0.35 * (1.0 - uLight) * core * 1.25 / max(glow * 0.75 + core * 1.25, 1e-4));
+  outColor = premul(c, k);
 }`;
 
 export class Comets {
@@ -127,6 +131,7 @@ export class Comets {
     this.alive = 0;
     this.spawned = 0;
     this.dim = 1;
+    layerTheme(this, 'dark', false, { alphaK: 1.3, cinemaGain: 1.5 });
 
     this.trail = createProgram(gl, 'comet-trail', TRAIL_VS, TRAIL_FS);
     this.headProg = createProgram(gl, 'comet-head', HEAD_VS, HEAD_FS);
@@ -140,6 +145,10 @@ export class Comets {
     this.headVao = this.makeVao(this.headProg.prog, 'aQuad', new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]));
     this.trailAttrs = ['iA', 'iB', 'iC', 'iD'].map((n) => gl.getAttribLocation(this.trail.prog, n));
     this.headAttrs = ['iA', 'iB', 'iC', 'iD'].map((n) => gl.getAttribLocation(this.headProg.prog, n));
+  }
+
+  setTheme(mode, cinema) {
+    layerTheme(this, mode, cinema, { alphaK: 1.3, cinemaGain: 1.5 });
   }
 
   makeVao(prog, name, verts) {
@@ -211,6 +220,7 @@ export class Comets {
     gl.uniform2f(u.uViewport, frame.renderWidth, frame.renderHeight);
     gl.uniform1f(u.uTime, frame.time);
     gl.uniform1f(u.uDim, this.dim);
+    setPremulUniforms(gl, u, this);
     gl.bindVertexArray(vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.ibuf);
     const start = (this.head - this.alive + this.capacity) % this.capacity;

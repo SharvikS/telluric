@@ -60,7 +60,7 @@ export class DemoSimulator {
       t: 'hello', v: 1, server: 'telluric-demo/1.0', mode: 'demo', host: 'demo-box', now,
       home: { ...this.home, src: 'flag' },
       ifaces: ['wlan0'],
-      features: { procs: true, geo: true, intel: true },
+      features: { procs: true, geo: true, intel: true, alerts: true, status: true },
       credits: [
         'IP geolocation by DB-IP (https://db-ip.com)',
         'Map data from Natural Earth (public domain)',
@@ -73,6 +73,8 @@ export class DemoSimulator {
     if (this.stress) this.addStress(this.stress);
     for (let i = 0; i < 60; i++) this.step(false);
     this.silent = false;
+    this.started = now - 37 * 60 * 1000; // pretend the engine has been up a while
+    this.synthHistory(now);
     this.emit({
       t: 'snapshot',
       endpoints: [...this.epById.values()],
@@ -83,6 +85,8 @@ export class DemoSimulator {
       dns: [],
       stats: this.stats(),
       history: this.history.slice(),
+      historyMin: this.historyMin.slice(),
+      status: this.statusReport(),
     });
     this.timer = setInterval(() => this.step(true), TICK_MS);
   }
@@ -234,10 +238,23 @@ export class DemoSimulator {
   }
 
   raise(kind, sev, title, detail, { ep = 0, flow = 0, proc = 0, score = 50, evidence = {}, tag } = {}) {
-    const a = { id: this.ids.alert++, ts: this.now(), sev, kind, title, detail, ep, flow, proc, score, evidence };
-    this.alerts.push(a);
-    if (this.alerts.length > 200) this.alerts.shift();
-    this.emit({ t: 'alert', items: [a] });
+    const now = this.now();
+    // Same identity (kind + endpoint, like the engine): a recurrence bumps the
+    // count and reopens a resolved alert; a muted one updates silently.
+    const epKey = ep ? this.epById.get(ep)?.ip : '';
+    const ident = `${kind}|${epKey}|${title}`;
+    let a = this.alerts.find((x) => x._ident === ident);
+    if (a) {
+      Object.assign(a, { ts: now, sev, detail, ep, flow, proc, score, evidence, count: a.count + 1 });
+      if (a.state === 'resolved') Object.assign(a, { state: 'open', stateTs: now });
+    } else {
+      a = { id: this.ids.alert++, ts: now, first: now, count: 1, sev, kind, title, detail, ep, flow, proc, score, evidence, state: 'open', stateTs: now, muted: false };
+      Object.defineProperty(a, '_ident', { value: ident, enumerable: false });
+      this.alerts.push(a);
+      if (this.alerts.length > 200) this.alerts.shift();
+    }
+    this.emit({ t: 'alert', items: [{ ...a }] });
+    if (a.muted) return a;
     const e = this.epById.get(ep);
     if (e) {
       e.threat = Math.max(e.threat, score);
@@ -250,6 +267,90 @@ export class DemoSimulator {
       x.s.dirty = true;
     }
     return a;
+  }
+
+  /** Client commands (alert workflow), handled locally in demo mode. */
+  command(cmd) {
+    const a = this.alerts.find((x) => x.id === cmd.id);
+    if (!a) return;
+    const now = this.now();
+    switch (cmd.t) {
+      case 'alert.ack': if (a.state === 'open') Object.assign(a, { state: 'acknowledged', stateTs: now }); break;
+      case 'alert.resolve': Object.assign(a, { state: 'resolved', stateTs: now }); break;
+      case 'alert.reopen': Object.assign(a, { state: 'open', stateTs: now }); break;
+      case 'alert.mute': a.muted = true; break;
+      case 'alert.unmute': a.muted = false; break;
+      default: return;
+    }
+    // Echo like the engine does, after a realistic round trip.
+    setTimeout(() => this.emit({ t: 'alert', items: [{ ...a }] }), 120 + this.rand() * 160);
+  }
+
+  /** Engine health report, as the real engine sends every 2 s. */
+  statusReport() {
+    const now = this.now();
+    const s = this.stats();
+    const day = 86400000;
+    const monthStart = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), 1);
+    this.capture = this.capture || { received: 2_400_000 };
+    this.capture.received += Math.round(s.pps * 2);
+    return {
+      ts: now, version: 'demo', mode: 'demo', started: this.started, uptime: (now - this.started) / 1000,
+      capture: { source: 'demo', received: this.capture.received, dropped: 0, pps: s.pps },
+      engine: { cpu: Math.round((2.2 + this.rand() * 1.6) * 10) / 10, heapMB: Math.round((38 + this.rand() * 6) * 10) / 10, goroutines: 12, flows: s.flows, endpoints: s.eps, procs: s.procs, framesPS: s.pps },
+      sources: [
+        { name: 'DB-IP Lite City', kind: 'geo', entries: 7_412_993, updated: monthStart, ok: true, detail: 'dbip-city-lite' },
+        { name: 'DB-IP Lite ASN', kind: 'asn', entries: 668_112, updated: monthStart, ok: true, detail: 'dbip-asn-lite' },
+        { name: 'abuse.ch Feodo Tracker', kind: 'intel', entries: 412, updated: now - 2.1 * 3600000, ok: true },
+        { name: 'abuse.ch ThreatFox', kind: 'intel', entries: 3672, updated: now - 2.1 * 3600000, ok: true },
+        { name: 'abuse.ch URLhaus', kind: 'intel', entries: 18_431, updated: now - 2.1 * 3600000, ok: true },
+        { name: 'abuse.ch SSLBL', kind: 'intel', entries: 156, updated: now - 2.1 * 3600000, ok: true },
+        { name: 'Spamhaus DROP', kind: 'intel', entries: 1_352, updated: now - 0.5 * day, ok: true },
+        { name: 'Tor exit nodes', kind: 'intel', entries: 1_211, updated: now - 2.1 * 3600000, ok: true },
+      ],
+      clients: 1,
+      mutes: this.alerts.filter((a) => a.muted).length,
+      warnings: [],
+    };
+  }
+
+  /**
+   * Plausible past: 15 minutes at 1 s and 24 hours at 1 min, with a daily
+   * rhythm (quiet nights, busy evenings) and the odd download burst.
+   */
+  synthHistory(now) {
+    const live = this.stats();
+    const mix = (rate) => {
+      const q = 0.55 + this.rand() * 0.15;
+      return { quic: Math.round(rate * q), tls: Math.round(rate * (0.93 - q)), dns: Math.round(rate * 0.004), ssh: Math.round(rate * 0.006), http: Math.round(rate * 0.02) };
+    };
+    const sec = [];
+    let level = 1;
+    // A video session and a couple of downloads in the last 15 minutes.
+    const bursts = [[840, 760, 5.2e6], [610, 520, 3.4e6], [430, 395, 9.5e6], [260, 150, 4.6e6], [95, 70, 2.2e6]];
+    for (let i = 899; i >= 1; i--) {
+      level = Math.max(0.35, Math.min(2.2, level + (this.rand() - 0.5) * 0.22));
+      const ts = now - i * 1000;
+      let burst = 0;
+      for (const [a, b, r] of bursts) if (i <= a && i >= b) burst = r * (0.45 + 0.35 * Math.sin(i / 3.1) + 0.2 * this.rand()) * Math.min(1, (a - i) / 8, (i - b) / 8 + 0.2);
+      const rx = Math.max(20_000, 380_000 * level * (0.7 + 0.6 * this.rand()) + burst);
+      const tx = Math.max(4_000, rx * (0.025 + 0.02 * this.rand()));
+      sec.push({ ts, rx: Math.round(rx), tx: Math.round(tx), pps: Math.round((rx + tx) / 900), flows: Math.round(live.flows * (0.8 + 0.4 * this.rand())), eps: live.eps, countries: live.countries, procs: live.procs, drops: 0, defcon: 5, apps: mix(rx + tx) });
+    }
+    this.history = sec;
+    const mins = [];
+    const tz = new Date().getTimezoneOffset();
+    for (let i = 1440; i >= 1; i--) {
+      const ts = Math.floor((now - i * 60000) / 60000) * 60000;
+      const hour = (((ts / 3600000 - tz / 60) % 24) + 24) % 24;
+      const diurnal = 0.12 + 0.88 * Math.max(0, Math.sin(((hour - 7) / 17) * Math.PI)) ** 1.4;
+      const spike = this.rand() < 0.015 ? 4 + this.rand() * 6 : 1;
+      const rx = Math.max(8_000, 900_000 * diurnal * spike * (0.6 + 0.8 * this.rand()));
+      const tx = rx * (0.03 + 0.03 * this.rand());
+      mins.push({ ts, rx: Math.round(rx), tx: Math.round(tx), pps: Math.round((rx + tx) / 900), flows: Math.round(6 + 34 * diurnal * (0.8 + 0.4 * this.rand())), eps: Math.round(8 + 30 * diurnal), countries: Math.round(3 + 8 * diurnal), procs: Math.round(4 + 8 * diurnal), drops: 0, defcon: this.rand() < 0.03 ? 3 : 5, apps: mix(rx + tx) });
+    }
+    this.historyMin = mins;
+    this.minuteAcc = [];
   }
 
   // ── simulation step ───────────────────────────────────────────────────────
@@ -370,10 +471,15 @@ export class DemoSimulator {
       const s = this.stats();
       if (this.tickN % 20 === 0) {
         this.history.push(s);
-        if (this.history.length > 300) this.history.shift();
+        if (this.history.length > 900) this.history.shift();
+        if (!this.silent) {
+          (this.minuteAcc = this.minuteAcc || []).push(s);
+          if (this.minuteAcc.length >= 60) this.flushMinute();
+        }
       }
       this.emit({ t: 'stats', ...s });
     }
+    if (this.tickN % 40 === 0 && !this.silent) this.emit({ t: 'status', ...this.statusReport() });
     if (this.tickN % 10 === 0) this.flushUpserts();
     if (this.tickN % 20 === 0) this.reap();
   }
@@ -469,6 +575,21 @@ export class DemoSimulator {
     if (gone.flows.length || gone.eps.length) this.emit({ t: 'gone', ...gone });
   }
 
+  /** One-minute average, as the engine's `stats.min`. */
+  flushMinute() {
+    const acc = this.minuteAcc;
+    this.minuteAcc = [];
+    const avg = (k) => Math.round(acc.reduce((a, x) => a + x[k], 0) / acc.length);
+    const apps = {};
+    for (const x of acc) for (const [k, v] of Object.entries(x.apps)) apps[k] = (apps[k] || 0) + v / acc.length;
+    for (const k of Object.keys(apps)) apps[k] = Math.round(apps[k]);
+    const last = acc[acc.length - 1];
+    const sample = { ...last, ts: Math.floor(last.ts / 60000) * 60000, rx: avg('rx'), tx: avg('tx'), pps: avg('pps'), flows: Math.max(...acc.map((x) => x.flows)), apps };
+    this.historyMin.push(sample);
+    if (this.historyMin.length > 1440) this.historyMin.shift();
+    this.emit({ t: 'stats.min', ...sample });
+  }
+
   stats() {
     let rx = 0, tx = 0, pps = 0, flows = 0;
     const apps = {};
@@ -488,7 +609,7 @@ export class DemoSimulator {
     }
     const now = this.now();
     let score = 0;
-    for (const a of this.alerts) score += SEV_WEIGHT[a.sev] * Math.exp(-(now - a.ts) / 90000);
+    for (const a of this.alerts) if (!a.muted && a.state !== 'resolved') score += SEV_WEIGHT[a.sev] * Math.exp(-(now - a.ts) / 90000);
     const defcon = score < 8 ? 5 : score < 25 ? 4 : score < 55 ? 3 : score < 95 ? 2 : 1;
     for (const k of Object.keys(apps)) apps[k] = Math.round(apps[k]);
     return {

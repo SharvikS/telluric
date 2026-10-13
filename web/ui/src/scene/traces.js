@@ -1,6 +1,7 @@
 import { Arcs } from './arcs.js';
 import { MK } from './markers.js';
 import { arcLift, latLonToVec3, clamp } from '../util/math.js';
+import { vizLinear, vizTheme } from '../config.js';
 
 // Traceroute paths ("hacker-movie moment"): when the machine runs mtr or
 // traceroute, the engine reconstructs the route hop by hop. We draw it as a
@@ -9,8 +10,9 @@ import { arcLift, latLonToVec3, clamp } from '../util/math.js';
 // "6 · New York · 82 ms". LAN hops sit at home; hops that cannot be located
 // are skipped (the path joins the hops either side of them).
 
-const GOLD = [1.0, 0.78, 0.38];
-const GOLD_HOT = [1.0, 0.9, 0.62];
+// Route colour follows the theme (amber in both, deeper on light surfaces).
+const gold = () => vizLinear('trace');
+const goldHot = () => (vizTheme() === 'light' ? vizLinear('high') : [1.0, 0.9, 0.62]);
 const SEG_STAGGER = 0.32; // seconds between consecutive segment reveals
 const PULSE_EVERY = 2.2;
 const FADE = 1.4;
@@ -67,7 +69,7 @@ export class Traces {
     for (const p of pts) {
       if (p.key === 'home' || st.seen.has(p.key)) continue;
       st.seen.set(p.key, now);
-      this.world.markers.pulse(p.pos, MK.RIPPLE, GOLD, 0.05, now, 1.5, 1.6);
+      this.world.markers.pulse(p.pos, MK.RIPPLE, gold(), 0.05, now, 1.5, 1.6);
     }
     // Segment births: each appears when its far hop answers, never sooner than
     // SEG_STAGGER after the previous one, so the route "draws itself".
@@ -105,7 +107,7 @@ export class Traces {
       }
       const segs = this.segments(st);
       for (const s of segs) {
-        list.push({ a: s.a, b: s.b, lift: s.lift, color: GOLD, intensity: 1, birth: s.birth, death: st.death, dirBias: -1, highlight: 1, flash: 0.35, seed: id * 0.37 });
+        list.push({ a: s.a, b: s.b, lift: s.lift, color: gold(), intensity: 1, birth: s.birth, death: st.death, dirBias: -1, highlight: 1, flash: 0.35, seed: id * 0.37 });
       }
       // Pulse train racing from home to the farthest answered hop.
       if (!st.death && segs.length && t - st.lastPulse > PULSE_EVERY) {
@@ -115,7 +117,7 @@ export class Traces {
         for (const s of segs) {
           if (s.birth > t) break;
           const dur = 0.2 + 0.9 * (s.theta / Math.PI);
-          this.world.comets.spawn(s.a, s.b, s.lift, GOLD_HOT, 3.4 * px, 1.25, start, dur, false, 0.35);
+          this.world.comets.spawn(s.a, s.b, s.lift, goldHot(), 3.4 * px, 1.25, start, dur, false, 0.35);
           start += dur * 0.94;
         }
       }
@@ -134,8 +136,8 @@ export class Traces {
         const seen = st.seen.get(p.key) || 0;
         if (t < seen) return;
         const dest = i === last && st.tr.done;
-        m.push(p.pos, MK.DOT, dest ? GOLD_HOT : GOLD, (dest ? 1.5 : 1.05) * fade, (dest ? 7 : 4.6) * px);
-        if (dest) m.push(p.pos, MK.RIPPLE, GOLD_HOT, 0.9 * fade, 0.05, t - (t % 1.6), 1.6);
+        m.push(p.pos, MK.DOT, dest ? goldHot() : gold(), (dest ? 1.5 : 1.05) * fade, (dest ? 7 : 4.6) * px);
+        if (dest) m.push(p.pos, MK.RIPPLE, goldHot(), 0.9 * fade, 0.05, t - (t % 1.6), 1.6);
       });
     }
   }

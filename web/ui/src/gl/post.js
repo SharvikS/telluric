@@ -78,13 +78,28 @@ uniform float uExposure;
 uniform float uTime;
 uniform float uGlitch;
 uniform float uCrt;
-uniform vec2 uResolution;
+uniform float uGrain;
+uniform float uVignette;
+uniform vec4 uSlot;     // canvas px, origin bottom-left: x, y, w, h
+uniform float uRadius;  // canvas px
+uniform float uAlpha;   // global fade of the whole globe
+uniform float uCA;      // chromatic aberration amount (cinema only)
+uniform vec2 uCanvas;   // canvas size, px
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
-vec3 aces(vec3 x) {
-  const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+// Linear up to the knee, then a smooth exponential shoulder to 1: UI-matched
+// colours stay exact, HDR highlights roll off instead of clipping.
+vec3 shoulder(vec3 x) {
+  x = max(x, 0.0);
+  const float k = 0.62;
+  vec3 hi = k + (1.0 - k) * (1.0 - exp(-(x - k) / (1.0 - k)));
+  return mix(x, hi, step(vec3(k), x));
+}
+
+vec3 srgb(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
 }
 
 vec3 sampleHDR(vec2 uv) {
@@ -92,44 +107,42 @@ vec3 sampleHDR(vec2 uv) {
   return (any(isnan(c)) || any(isinf(c))) ? vec3(0.0) : c;
 }
 
+float slotMask(vec2 p) {
+  vec2 c = uSlot.xy + uSlot.zw * 0.5;
+  vec2 b = uSlot.zw * 0.5 - vec2(uRadius);
+  vec2 d = abs(p - c) - b;
+  float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - uRadius;
+  return clamp(0.5 - dist, 0.0, 1.0);
+}
+
 void main() {
+  vec2 fc = gl_FragCoord.xy;
+  float m = slotMask(fc) * uAlpha;
+  if (m <= 0.0) { outColor = vec4(0.0); return; }
   vec2 uv = vUv;
-  if (uCrt > 0.5) {
-    vec2 c = uv * 2.0 - 1.0;
-    c *= 1.0 + 0.06 * dot(c, c);
-    uv = c * 0.5 + 0.5;
-  }
-  // Glitch: horizontal slice displacement and RGB split, driven by alerts.
+  vec2 suv = (fc - uSlot.xy) / uSlot.zw;
   float g = uGlitch;
   if (g > 0.001) {
-    float band = floor(uv.y * 48.0 + floor(uTime * 24.0) * 7.0);
+    float band = floor(suv.y * 48.0 + floor(uTime * 24.0) * 7.0);
     float r = hash(vec2(band, floor(uTime * 30.0)));
-    if (r < g * 0.35) uv.x += (hash(vec2(band, 3.1)) - 0.5) * 0.06 * g;
+    if (r < g * 0.35) uv.x += (hash(vec2(band, 3.1)) - 0.5) * 0.04 * g;
   }
-  vec2 ca = (uv - 0.5) * (0.0012 + 0.010 * g);
+  // Keep every sample inside the slot: sampling outside it reads cleared
+  // pixels and fringes the edges.
+  vec2 lo = (uSlot.xy + 1.0) / uCanvas, hi = (uSlot.xy + uSlot.zw - 1.0) / uCanvas;
+  vec2 ca = (suv - 0.5) * (0.0006 * uCA + 0.008 * g) * (uSlot.zw / max(uSlot.z, 1.0));
   vec3 col;
-  col.r = sampleHDR(uv + ca).r;
-  col.g = sampleHDR(uv).g;
-  col.b = sampleHDR(uv - ca).b;
-
-  col = aces(col * uExposure);
-  col = pow(col, vec3(1.0 / 2.2));
-
-  // Vignette and grain (in display space).
-  vec2 q = vUv - 0.5;
-  col *= 1.0 - 0.55 * pow(dot(q, q) * 1.6, 1.4);
-  col += (hash(vUv * uResolution + fract(uTime * 7.13) * 100.0) - 0.5) * 0.028;
-
+  col.r = sampleHDR(clamp(uv + ca, lo, hi)).r;
+  col.g = sampleHDR(clamp(uv, lo, hi)).g;
+  col.b = sampleHDR(clamp(uv - ca, lo, hi)).b;
+  col = srgb(shoulder(col * uExposure));
+  vec2 q = suv - 0.5;
+  col *= 1.0 - uVignette * pow(dot(q, q) * 1.6, 1.4);
+  col += (hash(fc + fract(uTime * 7.13) * 100.0) - 0.5) * uGrain;
   if (uCrt > 0.5) {
-    float scan = 0.68 + 0.32 * pow(abs(sin(vUv.y * uResolution.y * 1.5708)), 0.6);
-    vec3 mask = vec3(1.0);
-    float mx = mod(gl_FragCoord.x, 3.0);
-    mask = mx < 1.0 ? vec3(1.08, 0.94, 0.94) : mx < 2.0 ? vec3(0.94, 1.08, 0.94) : vec3(0.94, 0.94, 1.08);
-    col *= scan * mask;
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) col = vec3(0.0);
+    col *= 0.78 + 0.22 * pow(abs(sin(fc.y * 1.5708)), 0.6);
   }
-  col += vec3(0.25, 0.0, 0.03) * g * 0.25;
-  outColor = vec4(col, 1.0);
+  outColor = vec4(clamp(col, 0.0, 1.0) * m, m);
 }`;
 
 const LEVELS = 6;
@@ -144,11 +157,20 @@ export class Post {
     this.vao = gl.createVertexArray();
     this.mips = [];
     for (let i = 0; i < LEVELS; i++) this.mips.push(new Target(gl, caps));
-    this.bloomStrength = 0.75;
-    this.exposure = 1.0;
-    this.threshold = 0.62;
-    this.knee = 0.3;
     this.crt = false;
+    this.setTheme('dark', false);
+  }
+
+  /** Per-theme look. Cinema mode turns the glow and film effects up. */
+  setTheme(mode, cinema) {
+    this.cinema = cinema;
+    if (mode === 'light') {
+      Object.assign(this, { bloomStrength: cinema ? 0.25 : 0.1, threshold: cinema ? 0.85 : 0.95, knee: 0.2, exposure: 1.0, vignette: 0.0, grain: 0.0 });
+    } else {
+      Object.assign(this, cinema
+        ? { bloomStrength: 0.85, threshold: 0.55, knee: 0.45, exposure: 1.08, vignette: 0.45, grain: 0.02 }
+        : { bloomStrength: 0.36, threshold: 0.78, knee: 0.35, exposure: 1.0, vignette: 0.22, grain: 0.006 });
+    }
   }
 
   resize(w, h) {
@@ -197,12 +219,14 @@ export class Post {
     return this.mips[0].tex;
   }
 
-  composite(sceneTex, bloomTex, frame, outW, outH) {
+  /** slot: [x, y(bottom-left), w, h] in canvas px; radius in canvas px; alpha 0..1. */
+  composite(sceneTex, bloomTex, frame, outW, outH, slot, radius, alpha) {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, outW, outH);
     gl.disable(gl.BLEND);
     gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.SCISSOR_TEST);
     const { prog, u } = this.comp;
     gl.useProgram(prog);
     gl.activeTexture(gl.TEXTURE0);
@@ -214,9 +238,15 @@ export class Post {
     gl.uniform1f(u.uBloomStrength, this.bloomStrength);
     gl.uniform1f(u.uExposure, this.exposure);
     gl.uniform1f(u.uTime, frame.time);
-    gl.uniform1f(u.uGlitch, frame.glitch);
-    gl.uniform1f(u.uCrt, this.crt ? 1 : 0);
-    gl.uniform2f(u.uResolution, outW, outH);
+    gl.uniform1f(u.uGlitch, this.cinema ? frame.glitch : 0);
+    gl.uniform1f(u.uCrt, this.cinema && this.crt ? 1 : 0);
+    gl.uniform1f(u.uGrain, this.grain);
+    gl.uniform1f(u.uVignette, this.vignette);
+    gl.uniform4f(u.uSlot, slot[0], slot[1], slot[2], slot[3]);
+    gl.uniform1f(u.uRadius, radius);
+    gl.uniform1f(u.uAlpha, alpha);
+    gl.uniform1f(u.uCA, this.cinema ? 1 : 0);
+    gl.uniform2f(u.uCanvas, outW, outH);
     drawFullscreen(gl, this.vao);
   }
 }

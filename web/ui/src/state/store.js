@@ -1,9 +1,10 @@
 import { Emitter } from '../util/emitter.js';
 import { appRow } from '../config.js';
 
-const HISTORY = 300; // 1 Hz samples kept for graphs
+const HISTORY = 3600; // 1 Hz samples kept for graphs (the engine seeds 15 min)
+const HISTORY_MIN = 1440; // one-minute averages, 24 h
 const FAST_HISTORY = 240; // raw stats samples (~4 Hz) for sparklines
-const DNS_KEEP = 400;
+const DNS_KEEP = 6000;
 const ALERTS_KEEP = 400;
 const EP_HISTORY = 120;
 
@@ -23,7 +24,7 @@ function assignFull(prev, next) {
  * Events: reset, hello, home, snapshot, ep (ep, isNew), ep-gone (ep),
  * flow (flow, isNew), flow-gone (flow), proc (proc, isNew), proc-gone (proc),
  * dns (items), alert (alert, isNew), stats (stats), pkts (batch),
- * trace (trace, isNew), trace-gone (trace).
+ * trace (trace, isNew), trace-gone (trace), status (status), stats-min (sample).
  */
 export class Store extends Emitter {
   constructor() {
@@ -45,7 +46,9 @@ export class Store extends Emitter {
     this.traces = new Map();
     this.dns = [];
     this.stats = null;
+    this.status = null;
     this.history = [];
+    this.historyMin = [];
     this.fastHistory = [];
     this.byIp = new Map();
     this.flowsByEp = new Map();
@@ -87,7 +90,9 @@ export class Store extends Emitter {
           this.history = msg.history.slice(-HISTORY);
           this.lastHistorySec = this.history.length ? Math.floor(this.history[this.history.length - 1].ts / 1000) : 0;
         }
+        if (msg.historyMin) this.historyMin = msg.historyMin.slice(-HISTORY_MIN);
         if (msg.stats) this.setStats(msg.stats);
+        if (msg.status) this.setStatus(msg.status);
         this.emit('snapshot', msg);
         break;
       case 'ep':
@@ -117,6 +122,18 @@ export class Store extends Emitter {
       case 'stats': {
         const { t, ...stats } = msg;
         this.setStats(stats);
+        break;
+      }
+      case 'stats.min': {
+        const { t, ...sample } = msg;
+        this.historyMin.push(sample);
+        if (this.historyMin.length > HISTORY_MIN) this.historyMin.shift();
+        this.emit('stats-min', sample);
+        break;
+      }
+      case 'status': {
+        const { t, ...st } = msg;
+        this.setStatus(st);
         break;
       }
       default:
@@ -246,10 +263,23 @@ export class Store extends Emitter {
     this.emit('dns', items);
   }
 
+  setStatus(st) {
+    this.status = st;
+    this.emit('status', st);
+  }
+
   upsertAlert(a) {
     const isNew = !this.alerts.has(a.id);
     const prev = this.alerts.get(a.id);
-    const alert = prev ? assignFull(prev, a) : Object.assign(a, { _born: performance.now() });
+    // Keep a small client-side event log per alert for its timeline.
+    const ev = { at: Date.now(), state: a.state || 'open', count: a.count || 1, muted: !!a.muted, ts: a.ts };
+    if (prev) {
+      const last = prev._events[prev._events.length - 1];
+      if (!last || last.state !== ev.state || last.count !== ev.count || last.muted !== ev.muted) prev._events.push(ev);
+      if (prev._events.length > 40) prev._events.shift();
+      delete prev._pending;
+    }
+    const alert = prev ? assignFull(prev, a) : Object.assign(a, { _born: performance.now(), _events: [ev] });
     this.alerts.set(a.id, alert);
     if (isNew) {
       this.alertOrder.unshift(a.id);
@@ -278,6 +308,27 @@ export class Store extends Emitter {
     if (!t) return;
     this.traces.delete(id);
     this.emit('trace-gone', t);
+  }
+
+  /** Optimistic local state while a command is in flight (reconciled on echo). */
+  patchAlert(id, patch) {
+    const a = this.alerts.get(id);
+    if (!a) return;
+    Object.assign(a, patch, { _pending: true });
+    this.emit('alert', a, false);
+  }
+
+  /** Open, unmuted alerts by severity. */
+  alertCounts() {
+    const c = { critical: 0, high: 0, medium: 0, low: 0, info: 0, open: 0, acknowledged: 0, resolved: 0, muted: 0, total: 0 };
+    for (const a of this.alerts.values()) {
+      c.total++;
+      if (a.muted) { c.muted++; continue; }
+      const st = a.state || 'open';
+      c[st] = (c[st] || 0) + 1;
+      if (st === 'open') c[a.sev] = (c[a.sev] || 0) + 1;
+    }
+    return c;
   }
 
   setStats(s) {

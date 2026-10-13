@@ -1,5 +1,5 @@
-import { createProgram, GLSL_COMMON } from '../gl/gl.js';
-import { appColor, THREAT_COLOR } from '../config.js';
+import { createProgram, GLSL_COMMON, GLSL_PREMUL, layerTheme, setPremulUniforms } from '../gl/gl.js';
+import { appColor, THREAT_COLOR_FN } from '../config.js';
 import { arcLift, dot3, len3, clamp } from '../util/math.js';
 import { Placement } from './placement.js';
 
@@ -51,7 +51,7 @@ void main() {
   gl_Position = c;
   vUv = vec2(tc, aCorner.y);
   float dim = hl < -0.5 ? 0.12 : 1.0;
-  vec3 col = mix(iC.rgb, vec3(${THREAT_COLOR.join(', ')}), step(0.005, iD.z));
+  vec3 col = iC.rgb;
   vColor = vec4(col, (0.24 + 0.76 * iC.w) * fade * dim * (hl > 0.5 ? 1.6 : 1.0));
   float theta = acos(clamp(dot(normalize(iA.xyz), normalize(iB.xyz)), -1.0, 1.0));
   vParams = vec4(iD.w, iB.w, iD.z, theta);
@@ -66,6 +66,7 @@ in vec4 vParams;
 in float vFlash;
 uniform float uTime;
 out vec4 outColor;
+${GLSL_PREMUL}
 void main() {
   float edge = clamp(1.0 - abs(vUv.y), 0.0, 1.0);
   float soft = smoothstep(0.0, 0.9, edge);
@@ -80,9 +81,8 @@ void main() {
   float pulse = vParams.z > 0.0 ? 0.65 + 0.35 * sin(uTime * 7.0) : 1.0;
   float a = vColor.a;
   float body = soft * 0.32 + core * 0.95;
-  vec3 col = vColor.rgb * a * body * mix(0.55, 1.25, dash) * ends * pulse * 0.56;
-  col += vColor.rgb * vFlash * core * 0.4 * ends;
-  outColor = vec4(col, 1.0);
+  float k = a * body * mix(0.55, 1.25, dash) * ends * pulse * 0.56 + vFlash * core * 0.4 * ends;
+  outColor = premul(vColor.rgb, k);
 }`;
 
 export class Arcs {
@@ -94,6 +94,7 @@ export class Arcs {
     this.count = 0;
     this.data = null;
     this.width = 0.9;
+    layerTheme(this, 'dark', false, { alphaK: 1.6 });
 
     const corners = new Float32Array((SEG + 1) * 4);
     for (let i = 0; i <= SEG; i++) corners.set([i, -1, i, 1], i * 4);
@@ -170,8 +171,8 @@ export class Arcs {
       const rate = (ep.rateIn || 0) + (ep.rateOut || 0);
       const intensity = clamp((Math.log10(1 + rate) - 2.2) / 4.6, 0, 1);
       it.flash *= decay;
-      const color = appColor(ep._app);
       const threat = Math.max(ep.threat || 0, ep._flowThreat || 0) / 100;
+      const color = threat > 0 ? THREAT_COLOR_FN() : appColor(ep._app);
       let hl = 0;
       const f = frame.focus;
       if (f && f.active) {
@@ -193,6 +194,10 @@ export class Arcs {
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.ibuf);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, d, 0, n * STRIDE);
+  }
+
+  setTheme(mode, cinema) {
+    layerTheme(this, mode, cinema, { alphaK: this.alphaK0 || 1.6 });
   }
 
   /**
@@ -226,6 +231,7 @@ export class Arcs {
     gl.uniform2f(u.uViewport, frame.renderWidth, frame.renderHeight);
     gl.uniform1f(u.uTime, frame.time);
     gl.uniform1f(u.uWidth, this.width * frame.pxScale);
+    setPremulUniforms(gl, u, this);
     gl.bindVertexArray(this.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, (SEG + 1) * 2, this.count);
     gl.bindVertexArray(null);

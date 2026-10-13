@@ -1,4 +1,4 @@
-import { createProgram } from '../gl/gl.js';
+import { createProgram, GLSL_PREMUL, layerTheme, setPremulUniforms } from '../gl/gl.js';
 
 // All point-like decorations in one instanced program, switched by type:
 //   0 endpoint glow   billboard
@@ -74,26 +74,27 @@ in float vType;
 in float vParam;
 uniform float uTime;
 out vec4 outColor;
+${GLSL_PREMUL}
 void main() {
   int type = int(vType + 0.5);
   float r = length(vQ);
-  vec3 col = vec3(0.0);
+  float k = 0.0;
   float I = vColor.a;
   if (type == 0) {
     if (r > 1.0) discard;
     float core = exp(-r * r * 30.0);
     float halo = exp(-r * r * 5.0) * 0.35;
     float ring = smoothstep(0.62, 0.55, r) * smoothstep(0.42, 0.5, r) * 0.55;
-    col = vColor.rgb * (core * 2.2 + halo + ring) * I;
+    k = (core * 2.2 + halo + ring) * I;
   } else if (type == 1) {
     float x = clamp(1.0 - abs(vQ.x), 0.0, 1.0);
     float fadeUp = pow(clamp(1.0 - vQ.y, 0.0, 1.0), 1.4);
-    col = vColor.rgb * x * x * sqrt(x) * fadeUp * I * 1.4;
+    k = x * x * sqrt(x) * fadeUp * I * 1.4;
   } else if (type == 2) {
     if (vAge < 0.0 || vAge > 1.0) discard;
     float rq = (r - 0.92) / 0.06;
     float ring = exp(-rq * rq);
-    col = vColor.rgb * ring * (1.0 - vAge) * I * 1.2;
+    k = ring * (1.0 - vAge) * I * 1.2;
   } else if (type == 3) {
     if (r > 1.0) discard;
     float core = exp(-r * r * 40.0) * 3.0;
@@ -103,10 +104,10 @@ void main() {
     float ring = exp(-q1 * q1) * (1.0 - pulse) * 1.6;
     float ring2 = exp(-q2 * q2) * (1.0 - p2) * 1.6;
     float cross = (smoothstep(0.03, 0.0, abs(vQ.x)) + smoothstep(0.03, 0.0, abs(vQ.y))) * smoothstep(1.0, 0.55, r) * step(0.32, r) * 0.6;
-    col = vColor.rgb * (core + halo + ring + ring2 + cross) * I;
+    k = (core + halo + ring + ring2 + cross) * I;
   } else if (type == 4) {
     if (vAge < 0.0 || vAge > 1.0) discard;
-    float k = 1.0 - vAge;
+    float kk = 1.0 - vAge;
     float rings = 0.0;
     for (int i = 0; i < 3; i++) {
       float rr = fract(r * 1.0 - vAge * 1.5 + float(i) / 3.0);
@@ -115,16 +116,16 @@ void main() {
     }
     float qe = (r - 0.95) / 0.05;
     float edge = exp(-qe * qe) * 1.6;
-    col = vColor.rgb * (rings * 0.5 * smoothstep(1.0, 0.2, r) + edge) * k * k * I;
+    k = (rings * 0.5 * smoothstep(1.0, 0.2, r) + edge) * kk * kk * I;
   } else {
     float w = 0.012 * vParam;
     float qr = (r - 0.985) / max(w, 0.004);
     float ring = exp(-qr * qr);
     float ang = atan(vQ.y, vQ.x);
     float dash = step(0.5, fract(ang * 18.0 / 6.2831853 - uTime * 0.04));
-    col = vColor.rgb * ring * mix(0.35, 1.0, dash) * I;
+    k = ring * mix(0.35, 1.0, dash) * I;
   }
-  outColor = vec4(col, 1.0);
+  outColor = premul(vColor.rgb, k);
 }`;
 
 export class Markers {
@@ -135,6 +136,7 @@ export class Markers {
     this.data = null;
     this.count = 0;
     this.transient = []; // { pos, type, color, size, birth, life, intensity }
+    layerTheme(this, 'dark', false, { alphaK: 1.1 });
 
     this.vao = gl.createVertexArray();
     gl.bindVertexArray(this.vao);
@@ -154,6 +156,10 @@ export class Markers {
     });
     gl.bindVertexArray(null);
     this.ensure(1024);
+  }
+
+  setTheme(mode, cinema) {
+    layerTheme(this, mode, cinema, { alphaK: 1.1 });
   }
 
   ensure(n) {
@@ -212,6 +218,7 @@ export class Markers {
     gl.uniform2f(u.uViewport, frame.renderWidth, frame.renderHeight);
     gl.uniform1f(u.uTime, frame.time);
     gl.uniform3fv(u.uEye, frame.camera.eye);
+    setPremulUniforms(gl, u, this);
     gl.bindVertexArray(this.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.count);
     gl.bindVertexArray(null);

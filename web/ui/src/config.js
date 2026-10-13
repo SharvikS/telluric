@@ -1,65 +1,106 @@
-// Visual vocabulary shared by the renderer and the HUD.
+// Shared visual vocabulary: the data palette (one source of truth for charts,
+// arcs and comets), severities, threat levels and service names.
 
-/** Linear-ish RGB (0..1) per application protocol. Cleartext protocols run warm. */
-export const APP_COLORS = {
-  tls: [0.22, 0.86, 1.0],
-  quic: [0.66, 0.42, 1.0],
-  http: [1.0, 0.68, 0.22],
-  dns: [0.30, 1.0, 0.58],
-  doh: [0.25, 0.95, 0.80],
-  dot: [0.25, 0.95, 0.80],
-  ssh: [1.0, 0.88, 0.32],
-  stun: [1.0, 0.42, 0.84],
-  wireguard: [0.32, 0.55, 1.0],
-  openvpn: [0.32, 0.55, 1.0],
-  bittorrent: [1.0, 0.45, 0.25],
-  ntp: [0.62, 0.72, 0.86],
-  mdns: [0.62, 0.72, 0.86],
-  ssdp: [0.62, 0.72, 0.86],
-  dhcp: [0.62, 0.72, 0.86],
-  smtp: [1.0, 0.58, 0.28],
-  imap: [1.0, 0.58, 0.28],
-  pop3: [1.0, 0.58, 0.28],
-  ftp: [1.0, 0.58, 0.28],
-  telnet: [1.0, 0.58, 0.28],
-  rdp: [0.95, 0.55, 0.95],
-  icmp: [0.85, 0.92, 1.0],
-  unknown: [0.50, 0.58, 0.68],
+/** Okabe–Ito based palette per theme (sRGB hex). Mirrors --viz-* in tokens.css. */
+const VIZ = {
+  dark: {
+    tls: '#5ab4ef', quic: '#d48ab4', http: '#eaa22a', dns: '#33bf94', ssh: '#e6da55',
+    rtc: '#e8773d', p2p: '#4f8fe0', other: '#858a96', threat: '#f2555a', in: '#7b7ff6', out: '#33bf94',
+    home: '#c7cbff', trace: '#f2b23e', orbit: '#7f86c9', sel: '#ffffff',
+    critical: '#f2555a', high: '#f2853e', medium: '#f2b23e', low: '#4fb3f0', info: '#9aa0ad',
+  },
+  light: {
+    tls: '#1677c4', quic: '#a7487f', http: '#b57a00', dns: '#008a62', ssh: '#8a7d00',
+    rtc: '#c25200', p2p: '#2a5fb4', other: '#6e7380', threat: '#d93a3f', in: '#5b5bd6', out: '#008a62',
+    home: '#4f46e5', trace: '#c27c0e', orbit: '#8b93b8', sel: '#0c0c0f',
+    critical: '#d93a3f', high: '#d0610f', medium: '#c27c0e', low: '#1580c2', info: '#80808b',
+  },
 };
-export const THREAT_COLOR = [1.0, 0.16, 0.26];
 
-export const appColor = (app) => APP_COLORS[app] || APP_COLORS.unknown;
-export const cssColor = (rgb, a = 1) =>
-  `rgba(${Math.round(rgb[0] * 255)}, ${Math.round(rgb[1] * 255)}, ${Math.round(rgb[2] * 255)}, ${a})`;
+/** Which palette family an application protocol belongs to. */
+const FAMILY = {
+  tls: 'tls', quic: 'quic', http: 'http', dns: 'dns', doh: 'dns', dot: 'dns', mdns: 'dns',
+  ssh: 'ssh', stun: 'rtc', bittorrent: 'p2p', wireguard: 'p2p', openvpn: 'p2p',
+  smtp: 'http', imap: 'http', pop3: 'http', ftp: 'http', telnet: 'http',
+};
+export const family = (app) => FAMILY[app] || 'other';
 
-/** Order and labels for the protocol-mix and waterfall rows. */
+let current = 'dark';
+const linCache = new Map();
+
+export function setVizTheme(mode) {
+  current = mode === 'light' ? 'light' : 'dark';
+}
+export const vizTheme = () => current;
+
+export function hex(app, theme = current) {
+  const p = VIZ[theme];
+  return p[app] || p[family(app)] || p.other;
+}
+
+function toLinear(hexStr) {
+  let v = linCache.get(hexStr);
+  if (v) return v;
+  const n = parseInt(hexStr.slice(1), 16);
+  v = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  linCache.set(hexStr, v);
+  return v;
+}
+
+/** Linear RGB for GPU layers, for the current theme. */
+export const appColor = (app) => toLinear(hex(app));
+export const vizLinear = (key) => toLinear(hex(key));
+export const THREAT_COLOR_FN = () => toLinear(hex('threat'));
+
+export function cssColor(rgb, a = 1) {
+  return `rgba(${Math.round(rgb[0] * 255)}, ${Math.round(rgb[1] * 255)}, ${Math.round(rgb[2] * 255)}, ${a})`;
+}
+
+/** Protocol families shown in charts and legends, in a stable order. */
 export const APP_ROWS = [
   ['tls', 'TLS'], ['quic', 'QUIC'], ['http', 'HTTP'], ['dns', 'DNS'], ['ssh', 'SSH'],
-  ['stun', 'RTC'], ['bittorrent', 'P2P'], ['other', 'OTHER'],
+  ['rtc', 'WebRTC'], ['p2p', 'P2P / VPN'], ['other', 'Other'],
 ];
-export const appRow = (app) => (APP_ROWS.some(([k]) => k === app) ? app : app === 'doh' || app === 'dot' ? 'dns' : 'other');
+export const APP_LABEL = Object.fromEntries(APP_ROWS);
+export const appRow = (app) => family(app);
+export const APP_NAMES = {
+  tls: 'TLS', quic: 'QUIC', http: 'HTTP', dns: 'DNS', doh: 'DoH', dot: 'DoT', ssh: 'SSH', stun: 'WebRTC', mdns: 'mDNS',
+  ssdp: 'SSDP', dhcp: 'DHCP', ntp: 'NTP', wireguard: 'WireGuard', openvpn: 'OpenVPN', bittorrent: 'BitTorrent',
+  smtp: 'SMTP', imap: 'IMAP', pop3: 'POP3', ftp: 'FTP', telnet: 'Telnet', rdp: 'RDP', icmp: 'ICMP', unknown: 'Other',
+};
+export const appName = (app) => APP_NAMES[app] || String(app || 'other').toUpperCase();
 
 export const SEVERITY = {
-  info: { rank: 0, color: '#5ef2ff', label: 'INFO' },
-  low: { rank: 1, color: '#9be564', label: 'LOW' },
-  medium: { rank: 2, color: '#ffd23f', label: 'MED' },
-  high: { rank: 3, color: '#ff8c42', label: 'HIGH' },
-  critical: { rank: 4, color: '#ff3355', label: 'CRIT' },
+  critical: { rank: 4, label: 'Critical', css: 'danger', var: '--danger' },
+  high: { rank: 3, label: 'High', css: 'orange', var: '--orange' },
+  medium: { rank: 2, label: 'Medium', css: 'warning', var: '--warning' },
+  low: { rank: 1, label: 'Low', css: 'info', var: '--info' },
+  info: { rank: 0, label: 'Info', css: '', var: '--text-3' },
+};
+export const SEV_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
+
+/** The engine's 5-level scale ("defcon" on the wire), named for humans. */
+export const THREAT_LEVELS = {
+  5: { label: 'Normal', css: 'success', var: '--success', blurb: 'No notable security activity.' },
+  4: { label: 'Guarded', css: 'info', var: '--info', blurb: 'Low-severity findings worth a look.' },
+  3: { label: 'Elevated', css: 'warning', var: '--warning', blurb: 'Suspicious activity in the last minutes.' },
+  2: { label: 'High', css: 'orange', var: '--orange', blurb: 'Serious alerts need attention.' },
+  1: { label: 'Critical', css: 'danger', var: '--danger', blurb: 'Critical activity is happening now.' },
 };
 
-export const DEFCON_COLORS = { 5: '#4dff9a', 4: '#9be564', 3: '#ffd23f', 2: '#ff8c42', 1: '#ff3355' };
+export const ALERT_KINDS = {
+  intel: 'Threat intel match', beacon: 'Beaconing', dga: 'Generated domains', tunnel: 'DNS tunneling', scan: 'Port scan',
+  exfil: 'Exfiltration', cleartext: 'Cleartext credentials', 'arp-spoof': 'ARP spoofing', miner: 'Cryptomining',
+  tor: 'Tor', port: 'Suspicious port', anomaly: 'Anomaly', novel: 'New destination', tls: 'Weak TLS',
+};
 
-/** Short display names for well-known service keys (Endpoint.svc). */
 export const SERVICES = {
   google: 'Google', youtube: 'YouTube', cloudflare: 'Cloudflare', aws: 'AWS', azure: 'Azure', gcp: 'Google Cloud',
   akamai: 'Akamai', fastly: 'Fastly', github: 'GitHub', discord: 'Discord', spotify: 'Spotify', steam: 'Steam',
   netflix: 'Netflix', anthropic: 'Anthropic', openai: 'OpenAI', meta: 'Meta', whatsapp: 'WhatsApp', apple: 'Apple',
   microsoft: 'Microsoft', twitch: 'Twitch', reddit: 'Reddit', x: 'X', telegram: 'Telegram', zoom: 'Zoom',
   slack: 'Slack', amazon: 'Amazon', jio: 'Jio', tor: 'Tor',
-};
-
-export const ALERT_KINDS = {
-  intel: 'THREAT INTEL', beacon: 'BEACONING', dga: 'DGA', tunnel: 'DNS TUNNEL', scan: 'SCAN', exfil: 'EXFILTRATION',
-  cleartext: 'CLEARTEXT CREDS', 'arp-spoof': 'ARP SPOOF', miner: 'CRYPTOMINER', tor: 'TOR', port: 'SUSPICIOUS PORT',
-  anomaly: 'ANOMALY', novel: 'NOVELTY', tls: 'WEAK TLS',
 };

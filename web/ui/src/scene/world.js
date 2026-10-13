@@ -3,11 +3,8 @@ import { Arcs } from './arcs.js';
 import { Comets } from './comets.js';
 import { Markers, MK } from './markers.js';
 import { Traces } from './traces.js';
-import { appColor, THREAT_COLOR } from '../config.js';
+import { appColor, THREAT_COLOR_FN, vizLinear } from '../config.js';
 import { arcLift, clamp, dot3, len3, project, DEG } from '../util/math.js';
-
-const HOME_COLOR = [0.55, 0.95, 1.0];
-const SEV_RING = { info: [0.37, 0.95, 1.0], low: [0.6, 0.9, 0.4], medium: [1.0, 0.82, 0.25], high: [1.0, 0.55, 0.26], critical: [1.0, 0.16, 0.26] };
 const MAX_SPAWN_PER_FRAME = 700;
 // Per endpoint and direction, comets are rate-limited by a token bucket; bytes
 // from throttled shots are carried into the next comet, so a 50 MB/s download
@@ -46,6 +43,9 @@ export class World {
     this.spawnedThisFrame = 0;
     this.droppedShots = 0;
     this.buckets = new Map(); // ep id * 2 + dir → { tokens, at, bytes, pkts }
+    this.visible = false; // is the globe on screen? (no spawning work when hidden)
+    this.layers = { arcs: true, packets: true, labels: true, heat: true, terminator: true, traces: true };
+    this.born = new Map(); // ep id → time its marker appeared (spring-in)
 
     store.on('reset', () => this.reset());
     store.on('home', (h) => this.placement.setHome(h));
@@ -68,7 +68,8 @@ export class World {
       if (!isNew) return;
       const ep = a.ep ? store.endpoints.get(a.ep) : null;
       const p = ep ? this.placement.position(ep, this.now()) : this.placement.home;
-      const col = SEV_RING[a.sev] || SEV_RING.medium;
+      if (a.muted) return;
+      const col = vizLinear(a.sev || 'medium');
       const big = a.sev === 'critical' || a.sev === 'high';
       this.markers.pulse(p, MK.ALERT, col, big ? 0.16 : 0.09, this.now(), big ? 3.2 : 2.2, big ? 1.6 : 1.0);
       if (big) this.markers.pulse(p, MK.ALERT, col, 0.26, this.now() + 0.35, 3.4, 1.0);
@@ -82,6 +83,16 @@ export class World {
     return (performance.now() - this.t0) / 1000;
   }
 
+  /** Globe layer toggles (Settings and the Map view's layer panel). */
+  setLayers(l) {
+    Object.assign(this.layers, l);
+    this.arcs.visible = this.layers.arcs;
+    this.comets.visible = this.layers.packets;
+    this.traces.ribbons.visible = this.layers.traces;
+    this.renderer.globe.heatOn = this.layers.heat;
+    this.renderer.globe.terminator = this.layers.terminator;
+  }
+
   reset() {
     for (const id of [...this.arcs.items.keys()]) this.arcs.items.delete(id);
     this.pending.length = 0;
@@ -91,6 +102,7 @@ export class World {
   }
 
   onPackets(batch) {
+    if (!this.visible || !this.layers.packets) return;
     const t = this.now();
     for (let i = 0; i < batch.count; i++) {
       if (!this.spawnShot(batch.flow[i], batch.bytes[i], batch.pkts[i], batch.flags[i], t + batch.dt[i] / 1000)) {
@@ -141,7 +153,7 @@ export class World {
     const size = Math.min(0.8 + 0.22 * sizeK, 3.0) * px;
     const bright = Math.min(0.30 + 0.05 * sizeK, 0.82);
     const threat = (flow.threat || 0) > 0 || (ep.threat || 0) >= 40;
-    const color = threat ? THREAT_COLOR : appColor(flow.app);
+    const color = threat ? THREAT_COLOR_FN() : appColor(flow.app);
     const dimmed = this.focus.active && !this.matchesFocus(ep);
     const duration = geo ? (0.55 + 1.55 * (theta / Math.PI)) / this.speed : 0.6 / this.speed;
     const tail = geo ? clamp(0.18 / Math.max(theta, 0.05), 0.06, 0.26) : 0.3;
@@ -192,31 +204,38 @@ export class World {
       const rate = (ep.rateIn || 0) + (ep.rateOut || 0);
       const act = clamp((Math.log10(1 + rate) - 2) / 5, 0, 1);
       const threat = Math.max(ep.threat || 0, ep._flowThreat || 0) >= 40;
-      const col = threat ? THREAT_COLOR : appColor(ep._app);
+      const col = threat ? THREAT_COLOR_FN() : appColor(ep._app);
       const sel = this.focus.ep === id;
       const dim = this.focus.active && !this.matchesFocus(ep) ? 0.15 : 1;
-      m.push(it.pos, MK.DOT, col, (0.55 + 0.9 * act + Math.min(0.8, it.flash)) * dim, (3.2 + 4.5 * act + (sel ? 4 : 0)) * px);
+      // Markers spring in: a quick overshoot on the first half second.
+      let b0 = this.born.get(id);
+      if (b0 == null) this.born.set(id, (b0 = t));
+      const age = t - b0;
+      const spring = age > 0.9 ? 1 : 1 - Math.exp(-age * 9) * Math.cos(age * 16);
+      m.push(it.pos, MK.DOT, col, (0.55 + 0.9 * act + Math.min(0.8, it.flash)) * dim, (3.2 + 4.5 * act + (sel ? 4 : 0)) * px * spring);
       if (act > 0.12 && kind === 'geo') m.push(it.pos, MK.BEAM, col, (0.35 + 0.6 * act) * dim, 1.25 * px, 0, 0, 0.015 + 0.11 * act);
-      if (sel) m.push(it.pos, MK.RIPPLE, [0.8, 1.0, 1.0], 1.0, 0.035, t - (t % 1.4), 1.4);
-      if (threat) m.push(it.pos, MK.RIPPLE, THREAT_COLOR, 0.9, 0.04, t - ((t + id * 0.37) % 1.8), 1.8);
+      if (sel) m.push(it.pos, MK.RIPPLE, vizLinear('sel'), 1.0, 0.035, t - (t % 1.4), 1.4);
+      if (threat) m.push(it.pos, MK.RIPPLE, THREAT_COLOR_FN(), 0.9, 0.04, t - ((t + id * 0.37) % 1.8), 1.8);
     }
     if (this.placement.hasHome) {
       const h = this.placement.home;
-      m.push(h, MK.HOME, HOME_COLOR, 1.0, 22 * px);
-      m.push(h, MK.BEAM, HOME_COLOR, 0.9, 1.6 * px, 0, 0, 0.07);
+      const hc = vizLinear('home');
+      m.push(h, MK.HOME, hc, 1.0, 22 * px);
+      m.push(h, MK.BEAM, hc, 0.9, 1.6 * px, 0, 0, 0.07);
       if (anyLocal) {
         const r = 2.75 * DEG, alt = 1.041;
         const c = [h[0] * Math.cos(r) * alt, h[1] * Math.cos(r) * alt, h[2] * Math.cos(r) * alt];
-        m.push(c, MK.ORBIT, [0.45, 0.8, 1.0], 0.55, Math.sin(r) * alt, 0, 0, 1.2);
+        m.push(c, MK.ORBIT, vizLinear('orbit'), 0.55, Math.sin(r) * alt, 0, 0, 1.2);
       }
       if (anyUnlocated) {
         const r = 5.4 * DEG, alt = 1.085;
         const c = [h[0] * Math.cos(r) * alt, h[1] * Math.cos(r) * alt, h[2] * Math.cos(r) * alt];
-        m.push(c, MK.ORBIT, [0.7, 0.75, 0.9], 0.45, Math.sin(r) * alt, 0, 0, 0.8);
+        m.push(c, MK.ORBIT, vizLinear('orbit'), 0.45, Math.sin(r) * alt, 0, 0, 0.8);
       }
     }
-    this.traces.pushMarkers(m, t, px);
+    if (this.layers.traces) this.traces.pushMarkers(m, t, px);
     m.end(t);
+    for (const id of this.born.keys()) if (!this.arcs.items.has(id)) this.born.delete(id);
   }
 
   matchesFocus(ep) {
@@ -227,7 +246,8 @@ export class World {
   /** Projects endpoints to CSS pixels and tests them against the globe's horizon. */
   updateScreen(frame) {
     const cam = frame.camera;
-    const W = frame.cssWidth, H = frame.cssHeight;
+    const sl = frame.slot;
+    const W = sl.w, H = sl.h, ox = sl.x, oy = sl.y;
     const eye = cam.eye;
     const seen = new Set();
     const tmp = [0, 0, 0, 0];
@@ -238,9 +258,9 @@ export class World {
       const p = it.pos;
       const r = project(cam.viewProj, p, W, H, tmp);
       if (!r) { s.visible = false; continue; }
-      s.x = r[0];
-      s.y = r[1];
-      s.visible = !this.occluded(eye, p) && !it.death;
+      s.x = r[0] + ox;
+      s.y = r[1] + oy;
+      s.visible = !this.occluded(eye, p) && !it.death && r[0] >= 0 && r[1] >= 0 && r[0] <= W && r[1] <= H;
       // How squarely the point faces the camera (for label fading near the limb).
       const lp = len3(p) || 1;
       s.front = ((eye[0] - p[0]) * p[0] + (eye[1] - p[1]) * p[1] + (eye[2] - p[2]) * p[2]) / (lp * (Math.hypot(eye[0] - p[0], eye[1] - p[1], eye[2] - p[2]) || 1));
@@ -248,8 +268,8 @@ export class World {
     for (const id of this.screen.keys()) if (!seen.has(id)) this.screen.delete(id);
     if (this.placement.hasHome) {
       const r = project(cam.viewProj, this.placement.home, W, H, tmp);
-      this.homeScreen.visible = !!r && !this.occluded(eye, this.placement.home);
-      if (r) { this.homeScreen.x = r[0]; this.homeScreen.y = r[1]; }
+      this.homeScreen.visible = !!r && !this.occluded(eye, this.placement.home) && r[0] >= 0 && r[1] >= 0 && r[0] <= W && r[1] <= H;
+      if (r) { this.homeScreen.x = r[0] + ox; this.homeScreen.y = r[1] + oy; }
     }
   }
 
@@ -258,11 +278,12 @@ export class World {
     const f = this.lastFrame;
     if (!f) { out.visible = false; return out; }
     const cam = f.camera;
-    const r = project(cam.viewProj, p, f.cssWidth, f.cssHeight, this._tmp || (this._tmp = [0, 0, 0, 0]));
+    const sl = f.slot;
+    const r = project(cam.viewProj, p, sl.w, sl.h, this._tmp || (this._tmp = [0, 0, 0, 0]));
     if (!r) { out.visible = false; return out; }
-    out.x = r[0];
-    out.y = r[1];
-    out.visible = !this.occluded(cam.eye, p);
+    out.x = r[0] + sl.x;
+    out.y = r[1] + sl.y;
+    out.visible = !this.occluded(cam.eye, p) && r[0] >= 0 && r[1] >= 0 && r[0] <= sl.w && r[1] <= sl.h;
     const eye = cam.eye, lp = len3(p) || 1;
     out.front = ((eye[0] - p[0]) * p[0] + (eye[1] - p[1]) * p[1] + (eye[2] - p[2]) * p[2]) / (lp * (Math.hypot(eye[0] - p[0], eye[1] - p[1], eye[2] - p[2]) || 1));
     return out;

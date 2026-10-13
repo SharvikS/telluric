@@ -31,6 +31,13 @@ uniform float uDotRings;
 uniform float uSelCountry;
 uniform float uHoverCountry;
 uniform float uAlert;         // 0..1, global alert pulse
+// Theme palette (linear RGB) and shading constants, see PALETTES below.
+uniform vec3 uOcean, uShelf, uGrat, uLandFill, uDotNight, uDotDay, uHeatLo, uHeatHi;
+uniform vec3 uCoast, uCoastGlow, uBorder, uSelTint, uLightsCol, uRadar, uRimNight, uRimDay, uAlertCol;
+uniform vec4 uK;   // night multiplier, city-light gain, limb darkening, rim gain
+uniform vec4 uK2;  // coast, border, specular, graticule
+uniform float uTerminator; // day/night shading on/off
+uniform float uHeatOn;
 
 ${GLSL_COMMON}
 
@@ -102,20 +109,22 @@ void main() {
   float sdW = max(fwidth(sd), 1e-3);
   float land = smoothstep(-sdW, sdW, sd);
 
+  float dayK = uTerminator > 0.5 ? day : 1.0;
+
   // ── ocean ──
-  vec3 col = vec3(0.0022, 0.0055, 0.0125);
+  vec3 col = uOcean;
   float shelf = exp(min(sd, 0.0) * 0.16) * (1.0 - land);
-  col += vec3(0.0, 0.010, 0.018) * shelf;
-  // Graticule every 15°, finer every 5° when zoomed in.
+  col += uShelf * shelf;
+  // Graticule every 15°.
   vec2 g15 = vec2(lat, lon) / (PI / 12.0);
   vec2 gw = vec2(fwLat, fwLon / max(cos(lat), 0.05)) / (PI / 12.0);
   vec2 gd = abs(fract(g15 + 0.5) - 0.5) / max(gw, vec2(1e-4));
   float grat = 1.0 - smoothstep(0.0, 1.2, min(gd.x, gd.y));
   float eq = 1.0 - smoothstep(0.0, 1.2, abs(lat) / max(gw.x * PI / 12.0, 1e-4));
-  col += vec3(0.05, 0.22, 0.32) * (grat * 0.10 + eq * 0.10) * (1.0 - land * 0.85);
+  col = mix(col, uGrat, (grat * 0.5 + eq * 0.5) * uK2.w * (1.0 - land * 0.85));
 
   // ── land ──
-  col = mix(col, vec3(0.006, 0.022, 0.029), land);
+  col = mix(col, uLandFill, land);
   float rings = uDotRings;
   Cell cell = baseCell(lat, lon, rings);
   float pixCells = pixRad / cell.dLat;            // one pixel, in level-0 cell units
@@ -132,42 +141,38 @@ void main() {
   // Country lookup (nearest) and traffic heat.
   ivec2 ci = ivec2(clamp(uv * uCountrySize, vec2(0.0), uCountrySize - 1.0));
   float cid = floor(texelFetch(uCountries, ci, 0).r * 255.0 + 0.5);
-  float heat = texelFetch(uHeat, ivec2(int(cid), 0), 0).r;
+  float heat = texelFetch(uHeat, ivec2(int(cid), 0), 0).r * uHeatOn;
   float sel = (uSelCountry > 0.5 && abs(cid - uSelCountry) < 0.5) ? 1.0 : 0.0;
   float hov = (uHoverCountry > 0.5 && abs(cid - uHoverCountry) < 0.5) ? 1.0 : 0.0;
 
-  vec3 dotCol = mix(vec3(0.030, 0.17, 0.22), vec3(0.075, 0.36, 0.43), day);
-  vec3 heatCol = mix(vec3(0.45, 0.16, 1.0), vec3(1.0, 0.24, 0.66), smoothstep(0.3, 1.0, heat));
-  float pulse = 0.8 + 0.2 * sin(uTime * 2.4 - cid);
-  dotCol = mix(dotCol, heatCol * 0.9 * pulse, smoothstep(0.02, 0.9, heat));
-  dotCol += vec3(0.35, 0.9, 1.0) * hot * 0.55;
-  col += dotCol * dotCov;
-  col += heatCol * heat * land * 0.06 * pulse;
-  col += vec3(0.10, 0.45, 0.6) * land * (sel * 0.16 + hov * 0.08);
+  vec3 dotCol = mix(uDotNight, uDotDay, dayK);
+  vec3 heatCol = mix(uHeatLo, uHeatHi, smoothstep(0.3, 1.0, heat));
+  float pulse = 0.85 + 0.15 * sin(uTime * 2.0 - cid);
+  dotCol = mix(dotCol, heatCol, smoothstep(0.02, 0.9, heat) * pulse);
+  dotCol = mix(dotCol, uSelTint, hot * 0.35);
+  col = mix(col, dotCol, dotCov);
+  col = mix(col, heatCol, heat * land * 0.07);
+  col = mix(col, uSelTint, land * (sel * 0.10 + hov * 0.05));
 
   // Coastline: crisp line plus a soft glow on both sides.
   float coast = 1.0 - smoothstep(0.0, sdW * 1.6 + 0.25, abs(sd));
-  col += vec3(0.22, 0.80, 1.0) * coast * mix(0.32, 0.62, day);
-  col += vec3(0.03, 0.18, 0.26) * exp(-abs(sd) * 0.35) * 0.22;
+  col = mix(col, uCoast, coast * uK2.x * mix(0.8, 1.0, dayK));
+  col += uCoastGlow * exp(-abs(sd) * 0.35) * 0.22;
 
   // Land borders.
   float bd = textureGrad(uBorders, uv, dx, dy).r * BORDER_RANGE;
   float bdW = max(fwidth(bd), 1e-3);
   float border = (1.0 - smoothstep(0.25, 0.25 + bdW * 1.5, bd)) * land;
-  col += vec3(0.30, 0.75, 1.0) * border * (0.16 + sel * 0.5 + hov * 0.25);
+  col = mix(col, uBorder, border * min(1.0, uK2.y + sel * 0.45 + hov * 0.2));
 
   // ── light ──
-  col *= mix(0.55, 1.0, day);
-  col += vec3(0.0, 0.006, 0.016) * day * (1.0 - land);
+  col *= mix(uK.x, 1.0, dayK);
   float lights = textureGrad(uLights, uv, dx, dy).r;
-  float night = smoothstep(0.08, -0.22, NdotL);
-  col += vec3(1.0, 0.52, 0.20) * pow(lights, 1.9) * 1.05 * night;
-  float tq = NdotL / 0.035;
-  float term = exp(-tq * tq);
-  col += vec3(0.85, 0.32, 0.12) * term * 0.010 * (0.4 + 0.6 * land);
+  float night = smoothstep(0.08, -0.22, NdotL) * uTerminator;
+  col += uLightsCol * pow(lights, 1.9) * uK.y * night;
   vec3 R = reflect(-uSun, n);
-  float spec = pow(max(dot(R, V), 0.0), 220.0) * (1.0 - land) * step(0.0, NdotL);
-  col += vec3(0.5, 0.75, 1.0) * spec * 0.10;
+  float spec = pow(max(dot(R, V), 0.0), 220.0) * (1.0 - land) * step(0.0, NdotL) * uTerminator;
+  col += vec3(0.5, 0.75, 1.0) * spec * uK2.z;
 
   // ── home radar: range rings every 10° and a rotating sweep ──
   if (uHasHome > 0.5) {
@@ -175,28 +180,55 @@ void main() {
     float rr = ang / (PI / 18.0);
     float rw = max(fwidth(rr), 1e-4);
     float ring = (1.0 - smoothstep(0.0, rw * 1.3, abs(fract(rr + 0.5) - 0.5))) * smoothstep(4.5, 0.8, rr) * step(0.5, rr);
-    col += vec3(0.25, 0.85, 1.0) * ring * 0.07;
     vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), uHome) + vec3(1e-5, 0.0, 0.0));
     vec3 north = cross(uHome, east);
     vec3 t = n - uHome * dot(n, uHome);
     float az = atan(dot(t, east), dot(t, north));
-    float sweep = mod(uTime * 0.8, TAU) - PI;
+    float sweep = mod(uTime * 0.6, TAU) - PI;
     float behind = mod(sweep - az + TAU, TAU);
-    float trail = exp(-behind * 2.2) * smoothstep(0.80, 0.05, ang);
-    col += vec3(0.12, 0.9, 1.0) * trail * (0.05 + 0.10 * land);
+    float trail = exp(-behind * 2.4) * smoothstep(0.80, 0.05, ang);
+    col = mix(col, uRadar, min(1.0, ring * 0.16 + trail * (0.07 + 0.10 * land)));
   }
 
   // ── alert wash ──
-  col += vec3(0.6, 0.02, 0.06) * uAlert * 0.05 * land;
+  col = mix(col, uAlertCol, uAlert * 0.06 * land);
 
   // ── limb: darken towards the edge, then atmosphere rim ──
-  col *= mix(0.55, 1.0, sqrt(NdotV));
+  col *= mix(uK.z, 1.0, sqrt(NdotV));
   float rim = pow(1.0 - NdotV, 4.0);
-  vec3 atmo = mix(vec3(0.03, 0.09, 0.24), vec3(0.16, 0.50, 1.0), smoothstep(-0.25, 0.6, NdotL));
-  col += atmo * rim * 0.62;
+  vec3 atmo = mix(uRimNight, uRimDay, smoothstep(-0.25, 0.6, NdotL));
+  col += atmo * rim * uK.w;
 
   outColor = vec4(col, 1.0);
 }`;
+
+/** sRGB hex → linear RGB. */
+function lin(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+}
+
+// Globe palettes. Dark: a calm indigo-slate night globe. Light: pale land
+// dots on a light ocean with soft edges.
+const PALETTES = {
+  dark: {
+    ocean: '#0b0f1b', shelf: '#06090f', grat: '#1c2340', landFill: '#0f1424',
+    dotNight: '#27304a', dotDay: '#3c4b74', heatLo: '#5b5fe0', heatHi: '#a78bfa',
+    coast: '#5d6ab5', coastGlow: '#0b1030', border: '#2e3858', selTint: '#8b93ff', lightsCol: '#f2b23e',
+    radar: '#7b7ff6', rimNight: '#141a40', rimDay: '#4b5cc8', alertCol: '#f2555a',
+    k: [0.62, 0.55, 0.62, 0.55], k2: [0.55, 0.55, 0.08, 0.35],
+  },
+  light: {
+    ocean: '#eef2f8', shelf: '#000000', grat: '#dde3ee', landFill: '#e6ebf3',
+    dotNight: '#a4afc4', dotDay: '#93a0b8', heatLo: '#7b7ff6', heatHi: '#5b5bd6',
+    coast: '#8e9bb5', coastGlow: '#000000', border: '#c3cbdb', selTint: '#5b5bd6', lightsCol: '#d98a1a',
+    radar: '#5b5bd6', rimNight: '#dfe6f2', rimDay: '#ffffff', alertCol: '#d93a3f',
+    k: [0.93, 0.18, 0.88, 0.55], k2: [0.65, 0.7, 0.0, 0.45],
+  },
+};
 
 /** The globe: a sphere mesh, its textures and the per-country heat table. */
 export class Globe {
@@ -219,6 +251,15 @@ export class Globe {
     this.heatDirty = false;
     this.selCountry = 0;
     this.hoverCountry = 0;
+    this.terminator = true;
+    this.heatOn = true;
+    this.setTheme('dark');
+  }
+
+  setTheme(mode) {
+    const p = PALETTES[mode] || PALETTES.dark;
+    this.pal = {};
+    for (const [k, v] of Object.entries(p)) this.pal[k] = typeof v === 'string' ? lin(v) : v;
   }
 
   buildMesh(latSeg, lonSeg) {
@@ -285,6 +326,16 @@ export class Globe {
     gl.uniform1f(u.uHoverCountry, this.hoverCountry);
     gl.uniform1f(u.uAlert, frame.alert);
     gl.uniform2f(u.uCountrySize, this.countrySize[0], this.countrySize[1]);
+    const P = this.pal;
+    gl.uniform3fv(u.uOcean, P.ocean); gl.uniform3fv(u.uShelf, P.shelf); gl.uniform3fv(u.uGrat, P.grat);
+    gl.uniform3fv(u.uLandFill, P.landFill); gl.uniform3fv(u.uDotNight, P.dotNight); gl.uniform3fv(u.uDotDay, P.dotDay);
+    gl.uniform3fv(u.uHeatLo, P.heatLo); gl.uniform3fv(u.uHeatHi, P.heatHi); gl.uniform3fv(u.uCoast, P.coast);
+    gl.uniform3fv(u.uCoastGlow, P.coastGlow); gl.uniform3fv(u.uBorder, P.border); gl.uniform3fv(u.uSelTint, P.selTint);
+    gl.uniform3fv(u.uLightsCol, P.lightsCol); gl.uniform3fv(u.uRadar, P.radar); gl.uniform3fv(u.uRimNight, P.rimNight);
+    gl.uniform3fv(u.uRimDay, P.rimDay); gl.uniform3fv(u.uAlertCol, P.alertCol);
+    gl.uniform4fv(u.uK, P.k); gl.uniform4fv(u.uK2, P.k2);
+    gl.uniform1f(u.uTerminator, this.terminator ? 1 : 0);
+    gl.uniform1f(u.uHeatOn, this.heatOn ? 1 : 0);
     const texs = [this.texLand, this.texBorders, this.texLights, this.texCountries, this.texHeat];
     const names = ['uLand', 'uBorders', 'uLights', 'uCountries', 'uHeat'];
     for (let i = 0; i < texs.length; i++) {

@@ -23,6 +23,11 @@ export class Audio {
     this.master.connect(comp).connect(this.ctx.destination);
   }
 
+  setEnabled(on) {
+    if (on === this.enabled) return;
+    this.toggle();
+  }
+
   toggle() {
     this.enabled = !this.enabled;
     if (this.enabled) {

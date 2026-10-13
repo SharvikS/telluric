@@ -184,6 +184,19 @@ export class Connection extends Emitter {
     }
   }
 
+  /** Client → engine command (alert workflow). Demo mode handles it locally. */
+  command(cmd) {
+    if (this.demo) {
+      this.demo.command(cmd);
+      return true;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(cmd));
+      return true;
+    }
+    return false;
+  }
+
   send(obj) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
   }
