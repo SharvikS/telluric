@@ -21,7 +21,9 @@
 
 Every connection your computer makes becomes an arc to where the other end
 really is. Every packet is a comet racing along it. DNS lookups pop up over
-the cities they resolve to, labelled with the program that asked. Run `mtr`
+the cities they resolve to, labelled with the program that asked whenever
+the wire can tell (behind a local caching resolver such as systemd-resolved,
+only the resolver's own query is visible). Run `mtr`
 and the route draws itself hop by hop across the planet. A stack of
 detectors watches the traffic for beaconing malware, generated domains, DNS
 tunnels, scans, exfiltration, leaked passwords and ARP spoofing. When
