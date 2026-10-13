@@ -1,7 +1,7 @@
 # Architecture
 
 Telluric is a single static Go binary (the engine plus the embedded web UI)
-and an optional ~300-line privileged capture helper. Everything between the
+and an optional, small privileged capture helper. Everything between the
 network card and the pixels on the globe was written for this project: the
 packet ring reader, the protocol decoders, the QUIC decryption, the MaxMind DB
 reader, the WebSocket server, the anomaly detectors and the WebGL2 renderer.

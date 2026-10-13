@@ -172,16 +172,16 @@ func (b *beaconDet) evaluate(now int64) []event.Alert {
 		if familiar {
 			title = "Periodic check-ins to " + t.svc
 		}
-		target := k.ip.String()
+		target := netip.AddrPortFrom(k.ip, k.port).String()
 		if named {
-			target += " " + t.name
+			target = t.name + " (" + target + ")"
 		}
 		out = append(out, event.Alert{
 			Key: fmt.Sprintf("beacon:%d:%s:%d", k.proto, k.ip, k.port), Kind: "beacon", Score: int(math.Min(score, 89)),
 			EP: t.ep, Flow: t.flow, Proc: t.proc.id, Remote: k.ip,
 			Title: title,
-			Detail: fmt.Sprintf("%s → %s:%d every %.1f s ±%.1f s (%d connections)",
-				who(t.proc.name, t.proc.pid), target, k.port, st.median/1e9, st.jitter*st.median/1e9, st.n),
+			Detail: fmt.Sprintf("%s → %s every %s ±%s (%d connections)",
+				who(t.proc.name, t.proc.pid), target, period(st.median), period(st.jitter*st.median), st.n),
 			Evidence: map[string]any{
 				"interval_s": math.Round(st.median/1e7) / 100,
 				"jitter":     math.Round(st.jitter*1000) / 1000,
@@ -191,4 +191,12 @@ func (b *beaconDet) evaluate(now int64) []event.Alert {
 		})
 	}
 	return out
+}
+
+// period renders a duration given in nanoseconds: "10.0 s", "38 ms".
+func period(ns float64) string {
+	if ns < 1e9 {
+		return fmt.Sprintf("%.0f ms", ns/1e6)
+	}
+	return fmt.Sprintf("%.1f s", ns/1e9)
 }

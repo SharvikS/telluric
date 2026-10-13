@@ -87,7 +87,7 @@ func TestBeaconingIsCaughtAndTelemetryIsNot(t *testing.T) {
 			beacon = &s.alerts[i]
 		}
 	}
-	if beacon == nil || beacon.Score < 70 || !strings.Contains(beacon.Detail, "python3 (pid 31337)") || !strings.Contains(beacon.Detail, "every 10.0 s") {
+	if beacon == nil || beacon.Score < 70 || !strings.Contains(beacon.Detail, "python3 (pid 31337)") || !strings.Contains(beacon.Detail, "203.0.113.66:8443 every 10.0 s ±") {
 		t.Fatalf("beacon alert %+v", beacon)
 	}
 }
