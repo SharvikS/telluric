@@ -2,6 +2,7 @@ package engine
 
 import (
 	"net/netip"
+	"time"
 
 	"github.com/SharvikS/telluric/internal/capture"
 	"github.com/SharvikS/telluric/internal/decode"
@@ -25,7 +26,7 @@ func (e *Engine) handleFrame(f *capture.Frame) {
 	// Container bridges and veth pairs carry traffic twice (before and after
 	// NAT). Interface indexes only mean something for live capture: a
 	// replay's indexes belong to the machine that recorded it.
-	if e.cfg.Mode == "live" && ignoredIface(e.ifnames[f.Ifindex]) {
+	if e.cfg.Mode == "live" && e.cfg.AllInterfaces && ignoredIface(e.ifnames[f.Ifindex]) {
 		return
 	}
 	p := &e.pkt
@@ -207,7 +208,8 @@ func (e *Engine) newFlow(key flowKey, p *decode.Packet, out bool) *flow {
 		fl.app = AppDoH
 	}
 	if key.proto == decode.ProtoTCP || key.proto == decode.ProtoUDP {
-		fl.procNext = e.now // attribute as soon as the next sweep runs
+		fl.procNext = e.now // attribute right after this batch
+		e.procWanted = e.cfg.Procs != nil
 	}
 	e.flows[key] = fl
 	if e.cfg.Observer != nil {
@@ -433,7 +435,7 @@ func (e *Engine) requestProcs() {
 			continue
 		}
 		fl.procTries++
-		fl.procNext = e.now + int64(fl.procTries)*int64(rateEvery)
+		fl.procNext = e.now + int64(fl.procTries)*int64(50*time.Millisecond)
 		socks = append(socks, procmap.Socket{Proto: fl.key.proto, Local: fl.key.local, Remote: fl.key.remote})
 		if len(socks) == 512 {
 			break

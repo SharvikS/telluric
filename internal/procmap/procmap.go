@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,6 +56,7 @@ type Resolver struct {
 	owners   map[uint64]Key // socket inode → owner
 	procs    map[Key]*Process
 	lastScan time.Time
+	lastFull time.Time
 	users    map[int]string
 }
 
@@ -63,8 +65,14 @@ func New(root string) *Resolver {
 	return &Resolver{root: root, owners: map[uint64]Key{}, procs: map[Key]*Process{}, users: map[int]string{}}
 }
 
-// minRescan rate-limits full /proc/*/fd scans, the expensive part.
-const minRescan = 400 * time.Millisecond
+// Scans of /proc/*/fd are the expensive part (~4 ms for ~500 processes).
+// A targeted scan for unknown sockets runs at most every minRescan and stops
+// as soon as it found them; a full rebuild (which also forgets dead
+// processes) runs every fullRescan.
+const (
+	minRescan  = 20 * time.Millisecond
+	fullRescan = 5 * time.Second
+)
 
 type entry struct {
 	local, remote netip.AddrPort
@@ -87,17 +95,20 @@ func (r *Resolver) Resolve(socks []Socket) []*Process {
 	}
 
 	inodes := make([]uint64, len(socks))
-	missing := false
+	want := map[uint64]bool{}
 	for i, s := range socks {
 		inodes[i] = match(tables[s.Proto], s)
 		if inodes[i] != 0 {
 			if _, ok := r.owners[inodes[i]]; !ok {
-				missing = true
+				want[inodes[i]] = true
 			}
 		}
 	}
-	if missing && time.Since(r.lastScan) >= minRescan {
-		r.scan()
+	switch {
+	case time.Since(r.lastFull) >= fullRescan:
+		r.scan(nil)
+	case len(want) > 0 && time.Since(r.lastScan) >= minRescan:
+		r.scan(want)
 	}
 	out := make([]*Process, len(socks))
 	for i, ino := range inodes {
@@ -197,22 +208,37 @@ func parseHexAddr(s string) (netip.AddrPort, bool) {
 
 var socketLink = []byte("socket:[")
 
-// scan rebuilds the inode → process index from /proc/*/fd.
-func (r *Resolver) scan() {
-	r.lastScan = time.Now()
+// scan indexes socket inodes from /proc/*/fd. With want == nil it rebuilds
+// the whole index; otherwise it visits the newest processes first — a
+// short-lived client like curl is almost always among them — and stops as
+// soon as every wanted inode is found, so it can catch processes that live
+// only a few milliseconds.
+func (r *Resolver) scan(want map[uint64]bool) {
+	now := time.Now()
+	r.lastScan = now
 	dirs, err := os.ReadDir(r.root)
 	if err != nil {
 		return
 	}
-	owners := make(map[uint64]Key, len(r.owners))
-	alive := make(map[Key]bool, len(r.procs))
-	buf := make([]byte, 64)
+	pids := make([]int, 0, len(dirs))
 	for _, d := range dirs {
-		pid, err := strconv.Atoi(d.Name())
-		if err != nil {
-			continue
+		if pid, err := strconv.Atoi(d.Name()); err == nil {
+			pids = append(pids, pid)
 		}
-		fdDir := filepath.Join(r.root, d.Name(), "fd")
+	}
+	slices.Sort(pids)
+	slices.Reverse(pids)
+
+	full := want == nil
+	owners := r.owners
+	alive := map[Key]bool{}
+	if full {
+		owners = make(map[uint64]Key, len(r.owners))
+		r.lastFull = now
+	}
+	buf := make([]byte, 64)
+	for _, pid := range pids {
+		fdDir := filepath.Join(r.root, strconv.Itoa(pid), "fd")
 		fds, err := os.ReadDir(fdDir)
 		if err != nil || len(fds) == 0 {
 			continue // kernel thread, or another user's process when unprivileged
@@ -239,12 +265,18 @@ func (r *Resolver) scan() {
 				}
 			}
 			owners[ino] = key
+			delete(want, ino)
+		}
+		if !full && len(want) == 0 {
+			break
 		}
 	}
 	r.owners = owners
-	for k := range r.procs {
-		if !alive[k] {
-			delete(r.procs, k)
+	if full {
+		for k := range r.procs {
+			if !alive[k] {
+				delete(r.procs, k)
+			}
 		}
 	}
 }

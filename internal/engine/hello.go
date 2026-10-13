@@ -93,19 +93,31 @@ func (e *Engine) feedHello(fl *flow, p *decode.Packet) {
 			return
 		}
 	}
-	plain, _, _, err := h.keys.Open(h.plain[:0], p.Payload)
-	if err != nil {
+	// A datagram can carry several coalesced packets. Clients with large
+	// (post-quantum) ClientHellos and big datagrams — ngtcp2, for one — put
+	// two Initials back to back in a single datagram, each holding part of
+	// the ClientHello. Decrypt every Initial in it.
+	opened := 0
+	for dg := p.Payload; len(dg) > 0; {
+		plain, _, rest, err := h.keys.Open(h.plain[:0], dg)
+		if err != nil {
+			break // padding, or a packet type with other keys
+		}
+		opened++
+		h.plain = plain
+		_ = decode.QUICCryptoFrames(plain, func(off uint64, data []byte) {
+			if off < 1<<20 {
+				h.asm.Add(int(off), data)
+			}
+		})
+		dg = rest
+	}
+	if opened == 0 {
 		if h.tries >= 4 {
 			e.releaseHello(fl)
 		}
 		return
 	}
-	h.plain = plain
-	_ = decode.QUICCryptoFrames(plain, func(off uint64, data []byte) {
-		if off < 1<<20 {
-			h.asm.Add(int(off), data)
-		}
-	})
 	prefix := h.asm.Prefix()
 	if n := decode.HandshakeLen(prefix); n > 0 && len(prefix) >= n {
 		e.hello.QUIC = true

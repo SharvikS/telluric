@@ -18,11 +18,15 @@ jobs:
           go-version-file: go.mod
       - name: Wireshark (differential tests)
         run: sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tshark >/dev/null
+      - name: Allow unprivileged user namespaces (kernel-level capture tests)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
       - name: test (race detector)
         run: go test -race -count=1 ./...
+      - name: live capture end to end (namespaces, no root)
+        run: ./scripts/live-e2e.sh
       - name: fuzz smoke (10 s per target)
         run: make fuzz FUZZTIME=10s
       - name: benchmarks

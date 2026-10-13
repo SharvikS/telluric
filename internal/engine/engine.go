@@ -59,6 +59,10 @@ type Config struct {
 	// LocalAddrs lists this machine's addresses; it is polled every few
 	// seconds. Nil means "learn them from outgoing packets".
 	LocalAddrs func() []netip.Addr
+	// AllInterfaces is set when capturing on every interface; container
+	// bridges and veth pairs are then skipped, since they carry the same
+	// traffic as the uplink. An explicitly chosen interface is never skipped.
+	AllInterfaces bool
 }
 
 // Engine is the event loop. Create it with New and start it with Run.
@@ -95,6 +99,7 @@ type Engine struct {
 	history []wire.Stats
 
 	procPending bool
+	procWanted  bool             // a new flow awaits attribution
 	dnsHeld     []heldDNS        // answers waiting for their process
 	extraSocks  []procmap.Socket // loopback DNS clients to attribute
 	fv          event.Flow       // reusable observer view
@@ -193,6 +198,12 @@ func (e *Engine) Run(ctx context.Context) error {
 		}
 		if !sourceDone {
 			err := e.cfg.Source.Read(wait, e.handleFrame)
+			if e.procWanted {
+				// Ask right away: short-lived clients exit within milliseconds.
+				e.procWanted = false
+				e.drainAsync()
+				e.requestProcs()
+			}
 			switch {
 			case errors.Is(err, io.EOF):
 				e.cfg.Logf("source %s: end of capture", e.cfg.Source.Name())

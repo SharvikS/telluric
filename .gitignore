@@ -6,6 +6,7 @@
 *.pcap
 *.pcapng
 !testdata/**/*.pcap
+!testdata/**/*.pcapng
 
 # downloaded data (geolocation databases, threat feeds, caches)
 /data/

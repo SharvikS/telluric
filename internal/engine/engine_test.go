@@ -371,3 +371,30 @@ func TestTracerouteReconstruction(t *testing.T) {
 		t.Fatalf("hop 3 RTT %v, want 9 ms", last.Hops[2].RTT)
 	}
 }
+
+// TestRealNgtcp2Initial replays a capture of curl 8.22 (ngtcp2 + OpenSSL
+// 3.6) opening an HTTP/3 connection. Its post-quantum-sized ClientHello is
+// split across two Initial packets coalesced into one 2408-byte datagram —
+// a layout neither Go's QUIC stack nor the synthetic traffic produces. The
+// expected JA4 is what Wireshark computes for the same capture.
+func TestRealNgtcp2Initial(t *testing.T) {
+	src, err := capture.OpenFile("../../testdata/curl-ngtcp2-http3-initial.pcapng", false, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := New(Config{Source: src, Mode: "replay"})
+	rec := &recorder{}
+	eng.Subscribe(rec)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	eng.Run(ctx)
+	var quic *wire.Flow
+	for _, f := range rec.fold(t).flows {
+		if f.Proto == "udp" && f.RPort == 4433 {
+			quic = &f
+		}
+	}
+	if quic == nil || quic.App != "quic" || quic.SNI != "quic.telluric.test" || quic.JA4 != "q13d0313h3_55b375c5d22e_19cb63ff0383" || !quic.PQ {
+		t.Fatalf("flow %+v", quic)
+	}
+}

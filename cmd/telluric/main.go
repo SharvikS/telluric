@@ -197,16 +197,17 @@ func run(o options) error {
 	}
 
 	eng := engine.New(engine.Config{
-		Source:     src,
-		Mode:       mode,
-		Locator:    loc,
-		Home:       home,
-		Procs:      procs,
-		Observer:   observer,
-		Hostname:   hostname(mode),
-		Credits:    credits(mode),
-		Logf:       vlogf,
-		LocalAddrs: localAddrs,
+		Source:        src,
+		Mode:          mode,
+		Locator:       loc,
+		Home:          home,
+		Procs:         procs,
+		Observer:      observer,
+		Hostname:      hostname(mode),
+		Credits:       credits(mode),
+		Logf:          vlogf,
+		LocalAddrs:    localAddrs,
+		AllInterfaces: o.iface == "" || o.iface == "any",
 	})
 
 	if mode != "demo" {

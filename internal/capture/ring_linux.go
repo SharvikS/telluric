@@ -22,7 +22,7 @@ type RingOptions struct {
 	BlockSize int           // bytes per block, a power-of-two multiple of the page size (default 1 MiB)
 	Blocks    int           // blocks in the ring (default 64)
 	Snaplen   int           // in-kernel truncation of each frame (default 4096)
-	Retire    time.Duration // hand over a partially filled block after this long (default 50 ms)
+	Retire    time.Duration // hand over a partially filled block after this long (default 10 ms)
 }
 
 // Ring is a Source reading a memory-mapped TPACKET_V3 ring. The kernel
@@ -78,7 +78,9 @@ func OpenRing(opt RingOptions) (*Ring, error) {
 		opt.Snaplen = 4096
 	}
 	if opt.Retire == 0 {
-		opt.Retire = 50 * time.Millisecond
+		// Hand partly filled blocks over quickly: process attribution races
+		// short-lived clients, and every millisecond of latency counts.
+		opt.Retire = 10 * time.Millisecond
 	}
 	if opt.BlockSize%os.Getpagesize() != 0 || opt.BlockSize&(opt.BlockSize-1) != 0 {
 		return nil, fmt.Errorf("capture: block size %d is not a power-of-two multiple of the page size", opt.BlockSize)
