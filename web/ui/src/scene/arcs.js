@@ -2,6 +2,7 @@ import { createProgram, GLSL_COMMON, GLSL_PREMUL, layerTheme, setPremulUniforms 
 import { appColor, THREAT_COLOR_FN } from '../config.js';
 import { arcLift, dot3, len3, clamp } from '../util/math.js';
 import { Placement } from './placement.js';
+import { focusMatch } from './focus.js';
 
 // Every endpoint gets one great-circle arc from home. Arcs are instanced
 // triangle strips: the vertex shader evaluates the curve, expands it to a
@@ -176,7 +177,7 @@ export class Arcs {
       let hl = 0;
       const f = frame.focus;
       if (f && f.active) {
-        const match = (f.ep && f.ep === id) || (f.cc && ep.cc === f.cc) || (f.proc && f.procEps && f.procEps.has(id));
+        const match = focusMatch(f, id, ep);
         hl = match ? 1 : -1;
       } else if (f && f.ep === id) {
         hl = 1;

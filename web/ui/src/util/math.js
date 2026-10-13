@@ -89,7 +89,7 @@ export function arcPoint(a, b, lift, t, out = new Float32Array(3)) {
 }
 
 /** Arc apex height for two surface points `theta` radians apart. */
-export const arcLift = (theta) => 0.025 + 0.42 * Math.pow(theta / Math.PI, 0.85);
+export const arcLift = (theta) => 0.022 + 0.34 * Math.pow(theta / Math.PI, 0.9);
 
 // ── mat4 ────────────────────────────────────────────────────────────────────
 

@@ -93,7 +93,8 @@ export class GlobeLabels {
     this.root.style.opacity = String(Math.min(1, (slot.alpha - 0.6) / 0.4));
     this.slot = slot;
     const nowS = performance.now() / 1000;
-    if (this.enabled && this.waiting.length && nowS - this.lastSpawn > SPAWN_GAP && this.dns.length < MAX_DNS) {
+    const focus = this.world.focus;
+    if (this.enabled && !focus.trace && this.waiting.length && nowS - this.lastSpawn > SPAWN_GAP && this.dns.length < MAX_DNS) {
       for (let i = 0; i < this.waiting.length; i++) {
         const w = this.waiting[i];
         const ep = w.nx ? null : this.resolve(w.d);
@@ -159,12 +160,13 @@ export class GlobeLabels {
 
     // Tags for the busiest visible hosts, threats, and the selection.
     const busy = [];
-    if (this.enabled) {
-      const sel = this.world.focus.ep;
+    if (this.enabled && !focus.trace) {
+      const sel = focus.ep;
       for (const [id, s] of this.world.screen) {
         if (!s.visible || s.front < 0.15) continue;
         const ep = this.store.endpoints.get(id);
         if (!ep || this.dns.some((l) => l.ep === id)) continue;
+        if (focus.active && !this.world.matchesFocus(ep)) continue;
         const r = (ep.rateIn || 0) + (ep.rateOut || 0);
         const threat = (ep.threat || 0) >= 40;
         if (id === sel || threat || r > 4000) busy.push([id === sel ? Infinity : threat ? 1e12 : r, id, ep]);

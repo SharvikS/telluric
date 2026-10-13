@@ -70,7 +70,8 @@
 .mini-kpis .mk-l svg { width: 14px; height: 14px; color: var(--text-3); }
 .mini-kpis .mk-v { font-size: var(--text-xl); font-weight: 620; letter-spacing: -0.02em; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: var(--s-4); margin-bottom: var(--s-4); }
-.charts-row .card { height: 230px; }
+.charts-row .card { height: 260px; }
+.charts-row .card-body { overflow: hidden; }
 .td-host { display: flex; flex-direction: column; justify-content: center; line-height: 1.25; min-width: 0; }
 .td-host .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td-host .s { font-size: var(--text-2xs); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

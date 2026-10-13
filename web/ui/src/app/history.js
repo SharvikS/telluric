@@ -91,12 +91,14 @@ export class History {
     sample(this.eps, this.store.endpoints);
   }
 
+  /** Recent rate samples for a process / host: only the filled part of the
+   *  ring (oldest first); `.slots` is the ring size so charts can right-align. */
   procSeries(id) {
-    return this.procs.get(id) || null;
+    return filled(this.procs.get(id));
   }
 
   epSeries(id) {
-    return this.eps.get(id) || null;
+    return filled(this.eps.get(id));
   }
 }
 
@@ -106,8 +108,16 @@ function sample(rings, entities) {
     if (!r) rings.set(id, (r = new Float32Array(ENTITY_SAMPLES)));
     r.copyWithin(0, 1);
     r[ENTITY_SAMPLES - 1] = (e.rateIn || 0) + (e.rateOut || 0);
+    r.n = Math.min(ENTITY_SAMPLES, (r.n || 0) + 1);
   }
   for (const id of rings.keys()) if (!entities.has(id)) rings.delete(id);
+}
+
+function filled(r) {
+  if (!r || !r.n) return null;
+  const v = r.subarray(ENTITY_SAMPLES - r.n);
+  v.slots = ENTITY_SAMPLES;
+  return v;
 }
 
 function average(arr) {

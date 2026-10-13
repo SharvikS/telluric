@@ -102,7 +102,7 @@ function hostDesc(app, id) {
             ${alerts.length ? `<div class="section-title">Alerts</div>${alerts.slice(0, 5).map((a) => `<div class="card hoverable" style="padding:10px 12px;margin-bottom:8px;cursor:pointer" data-open="alert:${a.id}"><div class="row">${sevBadge(a.sev)}<b class="ellipsis">${esc(a.title)}</b></div><div class="subtle" style="font-size:12px;margin-top:4px">${esc(a.detail || '')}</div></div>`).join('')}` : ''}`;
           const sp = wrap.querySelector('.d-spark');
           const hist = app.history.epSeries(ep.id);
-          if (hist) spark(sp, Array.from(hist), 'currentColor', { w: 300, h: 64 });
+          if (hist) spark(sp, Array.from(hist), 'currentColor', { w: 300, h: 64, slots: hist.slots });
           return wrap;
         },
       },
@@ -208,7 +208,7 @@ function procDesc(app, id) {
             ])}
             ${hosts.size ? `<div class="section-title">Talks to</div>${[...hosts.values()].sort((a, b) => b.rate - a.rate).slice(0, 8).map((x) => `<div class="row" style="padding:5px 0"><a href="#" data-open="ep:${x.ep.id}" class="ellipsis">${esc(x.ep.name || x.ep.ip)}</a><span class="subtle ellipsis">${esc(x.ep.city || '')}</span><span class="spacer"></span><span class="num">${rate(x.rate)}</span></div>`).join('')}` : ''}`;
           const hist = app.history.procSeries(p.id);
-          if (hist) spark(wrap.querySelector('.d-spark'), Array.from(hist), 'currentColor', { w: 300, h: 64 });
+          if (hist) spark(wrap.querySelector('.d-spark'), Array.from(hist), 'currentColor', { w: 300, h: 64, slots: hist.slots });
           return wrap;
         },
       },

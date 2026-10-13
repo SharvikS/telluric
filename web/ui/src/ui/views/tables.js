@@ -11,6 +11,7 @@ import {
 import { appName, hex, family, SERVICES } from '../../config.js';
 
 const STATE_COLOR = { est: 'var(--success)', syn: 'var(--warning)', fin: 'var(--text-4)', closed: 'var(--text-4)', rst: 'var(--danger)', active: 'var(--info)' };
+const STATE_LABEL = { est: 'Established (TCP)', syn: 'Handshaking', fin: 'Closing', closed: 'Closed', rst: 'Reset', active: 'Active (UDP)' };
 const proto = (app) => `<span class="proto-chip"><i style="background:${hex(family(app))}"></i>${esc(appName(app))}</span>`;
 const where = (ep) => (!ep ? '—' : ep.scope === 'public'
   ? (ep.cc ? `<span class="flag">${esc(ep.cc)}</span> ${esc(ep.city || ep.country || '')}` : '<span class="subtle">Unlocated</span>')
@@ -20,9 +21,9 @@ const rateCell = (v) => (v > 0.5 ? rate(v) : '<span class="faint">—</span>');
 const threatCell = (n) => (n > 0 ? `<span class="badge ${n >= 70 ? 'danger' : n >= 40 ? 'orange' : 'warning'}">${n}</span>` : '<span class="faint">—</span>');
 
 function sparkSvg(arr, color) {
-  if (!arr) return '';
+  if (!arr || arr.length < 2) return '';
   const vals = Array.from(arr.slice(-60));
-  const [line, area] = sparkPaths(vals, 120, 22, 1.5, 512);
+  const [line, area] = sparkPaths(vals, 120, 22, 1.5, 512, 60);
   return `<svg class="td-spark" viewBox="0 0 120 22" preserveAspectRatio="none" style="color:${color}"><path d="${area}" fill="currentColor" opacity=".14"/><path d="${line}" fill="none" stroke="currentColor" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
@@ -51,10 +52,10 @@ export class ConnectionsView extends TableView {
       rowKey: (f) => f.id,
       sort: { key: 'total', dir: 'desc' },
       columns: [
-        { key: 'state', label: '', w: 34, html: (f) => `<span class="state-dot" style="background:${STATE_COLOR[f.state] || 'var(--text-4)'}" title="${esc(f.state)}"></span>`, text: (f) => f.state },
+        { key: 'state', label: '', w: 34, html: (f) => `<span class="state-dot" style="background:${STATE_COLOR[f.state] || 'var(--text-4)'}" data-tip="${esc(STATE_LABEL[f.state] || f.state)}"></span>`, text: (f) => f.state },
         { key: 'app', label: 'Protocol', w: 104, sort: (f) => f.app, html: (f) => proto(f.app), text: (f) => appName(f.app) },
         { key: 'proc', label: 'Process', w: 150, sort: (f) => (pr(f)?.name || '~'), html: (f) => { const p = pr(f); return p ? hostCell(p.name, `pid ${p.pid}`) : '<span class="faint">unattributed</span>'; }, text: (f) => pr(f)?.name || '' },
-        { key: 'host', label: 'Remote host', flex: 1, min: 220, sort: (f) => (ep(f)?.name || ep(f)?.ip || ''), html: (f) => { const e = ep(f); return e ? hostCell(middleTruncate(e.name || e.ip, 44), e.name ? e.ip : e.org) : '…'; }, text: (f) => { const e = ep(f); return e ? e.name || e.ip : ''; } },
+        { key: 'host', label: 'Remote host', flex: 1, min: 220, sort: (f) => (ep(f)?.name || ep(f)?.ip || ''), html: (f) => { const e = ep(f); return e ? hostCell(middleTruncate(e.name || e.ip, 44), [e.name ? e.ip : null, e.org].filter(Boolean).join(' · ')) : '…'; }, text: (f) => { const e = ep(f); return e ? e.name || e.ip : ''; } },
         { key: 'loc', label: 'Location', w: 170, sort: (f) => ep(f)?.country || '~', html: (f) => where(ep(f)), text: (f) => [ep(f)?.city, ep(f)?.cc].filter(Boolean).join(', ') },
         { key: 'port', label: 'Port', w: 72, align: 'right', sort: (f) => f.rport, html: (f) => `<span class="mono">${f.rport}</span>`, text: (f) => f.rport },
         { key: 'dir', label: 'Dir', w: 56, sort: (f) => f.dir, html: (f) => `<span data-tip="${f.dir === 'in' ? 'Inbound' : 'Outbound'}" style="color:var(--text-3)">${icon(f.dir === 'in' ? 'arrow-down-left' : 'arrow-up-right')}</span>`, text: (f) => f.dir },
@@ -235,12 +236,12 @@ export class DnsView extends TableView {
     const [k3, v3] = kpi('Unique names', 'hash');
     const [k4, v4] = kpi('Median latency', 'clock');
     this.kv = { v1, v2, v3, v4 };
-    const chartEl = h('div', { style: { position: 'absolute', inset: '0 16px 12px 16px' } });
+    const chartEl = h('div', { style: { position: 'absolute', inset: '0 16px 12px 16px', width: 'auto', height: 'auto' } });
     this.bars = new BarChart(chartEl, {
       series: [{ key: 'ok', label: 'Answered', color: RC_COLOR.NOERROR }, { key: 'nx', label: 'NXDOMAIN', color: RC_COLOR.NXDOMAIN }, { key: 'err', label: 'Errors', color: RC_COLOR.other }],
       format: (v) => String(Math.round(v)),
     });
-    this.top = new RankList({ max: 6, rowH: 40, onClick: (q) => { this.table.input.value = q; this.table.query = q.toLowerCase(); this.table.apply(); } });
+    this.top = new RankList({ max: 5, rowH: 42, onClick: (q) => { this.table.input.value = q; this.table.query = q.toLowerCase(); this.table.apply(); } });
     this.table = new DataTable({
       exportName: 'dns',
       placeholder: 'Filter queries…',

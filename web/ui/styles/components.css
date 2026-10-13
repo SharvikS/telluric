@@ -110,6 +110,10 @@ kbd, .kbd {
 .kpi .kpi-value small { font-size: 14px; font-weight: 500; color: var(--text-3); letter-spacing: 0; margin-left: 3px; }
 .kpi .kpi-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; min-height: 18px; }
 .kpi .kpi-spark { position: absolute; right: 12px; bottom: 12px; width: 96px; height: 34px; }
+.app.nodata .kpi-value, .app.nodata .kpi-foot, .app.nodata .kpi-spark { color: transparent !important; border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--skeleton-a) 0, var(--skeleton-b) 50%, var(--skeleton-a) 100%) 0 0 / 240px 100% repeat-x var(--skeleton-a); animation: shimmer 1.4s linear infinite; }
+.app.nodata .kpi-value small { color: transparent; }
+.app.nodata .kpi-spark svg { opacity: 0; }
 .delta { display: inline-flex; align-items: center; gap: 2px; font-size: var(--text-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
 .delta svg { width: 12px; height: 12px; }
 .delta.up { color: var(--success); }
@@ -341,7 +345,9 @@ kbd, .kbd {
 .dt-th:hover { color: var(--text); }
 .dt-th.sorted { color: var(--text); }
 .dt-th.right { justify-content: flex-end; }
-.dt-th .sort { width: 12px; height: 12px; opacity: 0; transition: opacity var(--dur-fast), transform var(--dur-base) var(--ease-spring); }
+.dt-th .sort { display: inline-grid; place-items: center; flex: none; width: 12px; height: 12px; opacity: 0; color: var(--accent-text); transition: opacity var(--dur-fast), transform var(--dur-base) var(--ease-spring); }
+.dt-th .sort svg { width: 12px; height: 12px; stroke-width: 2.4; }
+.dt-th.sortable:not(.sorted):hover .sort { opacity: 0.35; }
 .dt-th.sorted .sort { opacity: 1; }
 .dt-th.sorted.asc .sort { transform: rotate(180deg); }
 .dt-body { position: relative; flex: 1; overflow: auto; outline: none; }

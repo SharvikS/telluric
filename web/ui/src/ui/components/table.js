@@ -100,6 +100,7 @@ export class DataTable {
       if (c.align === 'right') th.append(caret, lab);
       else th.append(lab, caret);
       if (c.sort) {
+        th.classList.add('sortable');
         th.addEventListener('click', () => {
           if (this.sort.key === c.key) this.sort.dir = this.sort.dir === 'desc' ? 'asc' : 'desc';
           else this.sort = { key: c.key, dir: c.defaultDir || 'desc' };

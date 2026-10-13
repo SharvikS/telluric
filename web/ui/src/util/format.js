@@ -46,12 +46,12 @@ export function rateParts(bps) {
 
 export const rate = (bps) => rateParts(bps).join(' ');
 
-/** Compact rate for axis labels: "1.2M", "340K". */
+/** Compact rate for axis labels: "1.2 MB/s", "340 KB/s". */
 export function rateShort(bps) {
   const v = fp.units === 'bits' ? bps * 8 : bps;
   if (v <= 0) return '0';
-  const [n, u] = scale(v, ['', 'K', 'M', 'G', 'T']);
-  return `${n >= 10 || u === '' ? Math.round(n) : n.toFixed(1)}${u}`;
+  const [n, u] = scale(v, fp.units === 'bits' ? BIT_UNITS : ['B/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s']);
+  return `${n >= 10 || Number.isInteger(n) ? Math.round(n) : n.toFixed(1)} ${u}`;
 }
 
 export const rateUnit = () => (fp.units === 'bits' ? 'b/s' : 'B/s');

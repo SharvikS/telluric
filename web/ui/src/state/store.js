@@ -85,7 +85,7 @@ export class Store extends Emitter {
         for (const f of msg.flows || []) this.upsertFlow(f);
         for (const a of msg.alerts || []) this.upsertAlert(a);
         for (const tr of msg.traces || []) this.upsertTrace(tr);
-        if (msg.dns && msg.dns.length) this.addDns(msg.dns);
+        if (msg.dns && msg.dns.length) this.addDns(msg.dns, true);
         if (msg.history) {
           this.history = msg.history.slice(-HISTORY);
           this.lastHistorySec = this.history.length ? Math.floor(this.history[this.history.length - 1].ts / 1000) : 0;
@@ -257,10 +257,11 @@ export class Store extends Emitter {
     this.emit('proc-gone', p);
   }
 
-  addDns(items) {
+  /** `backlog` (snapshot history) is stored without announcing each lookup. */
+  addDns(items, backlog = false) {
     for (const d of items) this.dns.push(d);
     if (this.dns.length > DNS_KEEP) this.dns.splice(0, this.dns.length - DNS_KEEP);
-    this.emit('dns', items);
+    if (!backlog) this.emit('dns', items);
   }
 
   setStatus(st) {

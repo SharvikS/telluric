@@ -30,7 +30,13 @@ export function fuzzy(query, text) {
     idx.push(found);
     ti = found + 1;
   }
-  score -= (t.length - idx.length) * 0.02;
+  // Scattered letters are not a match: require the matched characters to
+  // sit reasonably close together (or be word-start chains).
+  const qn = q.replace(/\s+/g, '').length;
+  const span = idx.length ? idx[idx.length - 1] - idx[0] + 1 : 0;
+  const starts = idx.filter((i) => i === 0 || /[\s._\-/:@]/.test(t[i - 1])).length;
+  if (qn > 1 && span > qn * 3 + 2 && starts < Math.ceil(qn / 2)) return null;
+  score -= (span - qn) * 0.6 + (t.length - idx.length) * 0.02;
   return { score, idx };
 }
 

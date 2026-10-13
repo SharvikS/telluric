@@ -1,4 +1,5 @@
 import { Placement } from './placement.js';
+import { focusMatch } from './focus.js';
 import { Arcs } from './arcs.js';
 import { Comets } from './comets.js';
 import { Markers, MK } from './markers.js';
@@ -39,7 +40,9 @@ export class World {
     this.homeScreen = { x: 0, y: 0, visible: false };
     this.heatAt = 0;
     this.speed = 1;
-    this.focus = { active: false, ep: 0, proc: 0, cc: null, procEps: null };
+    // Highlighting: `active` dims everything that does not match (a process's
+    // hosts, a country, an explicit set); `ep` alone just marks the selection.
+    this.focus = { active: false, ep: 0, proc: 0, cc: null, procEps: null, eps: null, trace: 0 };
     this.spawnedThisFrame = 0;
     this.droppedShots = 0;
     this.buckets = new Map(); // ep id * 2 + dir → { tokens, at, bytes, pkts }
@@ -240,7 +243,7 @@ export class World {
 
   matchesFocus(ep) {
     const f = this.focus;
-    return (f.ep && f.ep === ep.id) || (f.cc && ep.cc === f.cc) || (f.proc && f.procEps && f.procEps.has(ep.id));
+    return focusMatch(f, ep.id, ep);
   }
 
   /** Projects endpoints to CSS pixels and tests them against the globe's horizon. */

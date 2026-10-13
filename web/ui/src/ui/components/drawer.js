@@ -85,10 +85,14 @@ export class Drawer {
     document.body.appendChild(dot);
     this.avatar.style.opacity = '0';
     requestAnimationFrame(() => {
-      const r = this.avatar.getBoundingClientRect();
-      // Wait for the drawer's slide so we land where the avatar will be.
-      const settle = wasOpen ? 0 : 240;
-      const tx = r.left + (wasOpen ? 0 : 0) - (from.x - 8), ty = r.top - (from.y - 8);
+      // The drawer may still be sliding in: target the avatar's final spot,
+      // i.e. its offset inside the drawer from the drawer's resting place.
+      const av = this.avatar.getBoundingClientRect();
+      const d = this.el.getBoundingClientRect();
+      const finalLeft = innerWidth - 8 - this.el.offsetWidth;
+      const r = { left: finalLeft + (av.left - d.left), top: 8 + (av.top - d.top), width: av.width };
+      const settle = wasOpen ? 0 : 180;
+      const tx = r.left - (from.x - 8), ty = r.top - (from.y - 8);
       const s = r.width / 16;
       const a = animate(dot, [
         { transform: 'translate(0,0) scale(1)', borderRadius: '50%', opacity: 1 },

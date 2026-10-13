@@ -95,7 +95,7 @@ export class OverviewView extends View {
     });
 
     // Throughput.
-    const chartEl = h('div', { style: { position: 'absolute', inset: '0 16px 12px 16px' } });
+    const chartEl = h('div', { style: { position: 'absolute', inset: '0 16px 12px 16px', width: 'auto', height: 'auto' } });
     this.chart = new AreaChart(chartEl, {
       series: this.dirSeries(), format: (v) => rate(v), axisFormat: (v) => rateShort(v),
     });

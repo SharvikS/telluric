@@ -77,6 +77,12 @@ export class TracesView extends View {
     if (this.listEl._h !== html) { this.listEl._h = html; this.listEl.innerHTML = html; }
     const t = s.traces.get(this.sel);
     if (!t) return;
+    // Spotlight the route: other traffic dims, host labels step aside.
+    const f = this.app.world.focus;
+    const dst = s.byIp.get(t.dst);
+    f.trace = t.id;
+    f.active = true;
+    f.eps = new Set(dst ? [dst.id] : []);
     this.globeTitle.textContent = t.name || t.dst;
     const last = t.hops[t.hops.length - 1];
     this.globeSub.textContent = `${last ? last.n : t.hops.length} hops · started ${time(t.ts)}`;

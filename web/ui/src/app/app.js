@@ -12,6 +12,7 @@ import { Router } from './router.js';
 import { Tweens, animate, motion, setReducedMotion, approach } from './motion.js';
 import { Controls } from '../scene/camera.js';
 import { Placement } from '../scene/placement.js';
+import { clearFocus } from '../scene/focus.js';
 import {
   latLonToVec3, vec3ToLatLon, subsolarPoint, screenRay, raySphere, clamp, easeInOutCubic,
 } from '../util/math.js';
@@ -151,7 +152,8 @@ export class App {
       const slot = next.slot();
       this.slotMgr.setTarget(slot);
       this.controls.attach(slot);
-      this.world.focus.trace = 0;
+      clearFocus(this.world.focus);
+      this.focusDrawer(this.drawer.ref);
       if (slot) this.refitCamera();
     }
     next.show(route.params || {});
@@ -179,14 +181,30 @@ export class App {
   openEntity(ref, opts = {}) {
     if (!ref || ref.id == null) return;
     this.drawer.open(ref, opts);
-    if (ref.type === 'ep') this.world.focus.ep = ref.id;
+    this.focusDrawer(ref);
     const p = { ...this.router.current.params, sel: `${ref.type}:${ref.id}` };
     this.router.replaceParams(p);
   }
 
+  /** Globe highlight for the drawer's entity: a host is marked; a process
+   *  dims everything except the hosts it talks to. */
+  focusDrawer(ref) {
+    const f = this.world.focus;
+    f.ep = ref && ref.type === 'ep' ? ref.id : ref && ref.type === 'alert' ? this.store.alerts.get(ref.id)?.ep || 0 : 0;
+    f.proc = ref && ref.type === 'proc' ? ref.id : 0;
+    f.procEps = f.proc ? this.procEps(f.proc) : null;
+    f.active = !!(f.proc || f.trace);
+  }
+
+  procEps(id) {
+    const out = new Set();
+    for (const fl of this.store.flows.values()) if (fl.proc === id) out.add(fl.ep);
+    return out;
+  }
+
   onDrawer(ref) {
     if (!ref) {
-      this.world.focus.ep = 0;
+      this.focusDrawer(null);
       const p = { ...this.router.current.params };
       delete p.sel;
       this.router.replaceParams(p);
@@ -572,6 +590,9 @@ export class App {
     this.history.tick(now);
     if (now - this.lastShell > 500) {
       this.lastShell = now;
+      this.root.classList.toggle('nodata', !this.store.stats);
+      const f = this.world.focus;
+      if (f.proc) f.procEps = this.procEps(f.proc);
       this.topbar.setLive(this.paused, this.buffered);
       const c = this.store.alertCounts();
       this.nav.setBadge('security', c.critical + c.high + c.medium + c.low);

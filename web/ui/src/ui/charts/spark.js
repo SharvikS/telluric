@@ -1,21 +1,25 @@
 // Sparklines: tiny SVG line + area, scaled to their viewBox.
 
-export function sparkPaths(values, w, h, pad = 1.5, floor = 0) {
+/** `slots` > values.length right-aligns a series that has not filled its
+ *  window yet, so missing history reads as "no data" rather than as zero. */
+export function sparkPaths(values, w, h, pad = 1.5, floor = 0, slots = values.length) {
   const n = values.length;
   if (n < 2) return ['', ''];
   let max = floor;
   for (const v of values) if (v > max) max = v;
   if (max <= 0) max = 1;
-  const X = (i) => (i / (n - 1)) * w;
+  const span = Math.max(n, slots) - 1;
+  const off = span - (n - 1);
+  const X = (i) => ((off + i) / span) * w;
   const Y = (v) => h - pad - (v / max) * (h - pad * 2);
   let line = '';
   for (let i = 0; i < n; i++) line += `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(values[i]).toFixed(1)}`;
-  const area = `${line}L${w} ${h}L0 ${h}Z`;
+  const area = `${line}L${w} ${h}L${X(0).toFixed(1)} ${h}Z`;
   return [line, area];
 }
 
 /** Creates (or updates) an inline sparkline inside `el`. */
-export function spark(el, values, color = 'var(--accent)', { w = 96, h = 32, fill = true, floor = 0 } = {}) {
+export function spark(el, values, color = 'var(--accent)', { w = 96, h = 32, fill = true, floor = 0, slots } = {}) {
   let svg = el._spark;
   if (!svg) {
     svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -31,7 +35,7 @@ export function spark(el, values, color = 'var(--accent)', { w = 96, h = 32, fil
     el._spark = svg;
   }
   svg.style.color = color;
-  const [line, area] = sparkPaths(values, w, h, 1.5, floor);
+  const [line, area] = sparkPaths(values, w, h, 1.5, floor, slots || values.slots || values.length);
   svg.querySelector('.l').setAttribute('d', line);
   const a = svg.querySelector('.a');
   if (fill) a.setAttribute('d', area);

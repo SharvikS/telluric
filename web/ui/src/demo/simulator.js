@@ -75,6 +75,7 @@ export class DemoSimulator {
     this.silent = false;
     this.started = now - 37 * 60 * 1000; // pretend the engine has been up a while
     this.synthHistory(now);
+    const dnsBefore = this.synthDns(now);
     this.emit({
       t: 'snapshot',
       endpoints: [...this.epById.values()],
@@ -82,7 +83,7 @@ export class DemoSimulator {
       procs: [...this.procs.values()],
       alerts: [],
       traces: [],
-      dns: [],
+      dns: dnsBefore,
       stats: this.stats(),
       history: this.history.slice(),
       historyMin: this.historyMin.slice(),
@@ -328,6 +329,19 @@ export class DemoSimulator {
     let level = 1;
     // A video session and a couple of downloads in the last 15 minutes.
     const bursts = [[840, 760, 5.2e6], [610, 520, 3.4e6], [430, 395, 9.5e6], [260, 150, 4.6e6], [95, 70, 2.2e6]];
+    // Slow, mean-reverting wander for the gauges so their sparklines look
+    // lived-in and still land on today's live value.
+    const wander = (base, amp) => {
+      const out = new Array(900);
+      let v = 0, d = 0;
+      for (let i = 899; i >= 1; i--) {
+        d = d * 0.96 + (this.rand() - 0.5) * 0.05;
+        v = (v + d) * 0.992;
+        out[i] = base * (1 + amp * Math.tanh(v * 3) * Math.min(1, i / 120));
+      }
+      return out;
+    };
+    const wEps = wander(live.eps, 0.22), wCc = wander(live.countries, 0.25), wProcs = wander(live.procs, 0.2);
     for (let i = 899; i >= 1; i--) {
       level = Math.max(0.35, Math.min(2.2, level + (this.rand() - 0.5) * 0.22));
       const ts = now - i * 1000;
@@ -335,7 +349,7 @@ export class DemoSimulator {
       for (const [a, b, r] of bursts) if (i <= a && i >= b) burst = r * (0.45 + 0.35 * Math.sin(i / 3.1) + 0.2 * this.rand()) * Math.min(1, (a - i) / 8, (i - b) / 8 + 0.2);
       const rx = Math.max(20_000, 380_000 * level * (0.7 + 0.6 * this.rand()) + burst);
       const tx = Math.max(4_000, rx * (0.025 + 0.02 * this.rand()));
-      sec.push({ ts, rx: Math.round(rx), tx: Math.round(tx), pps: Math.round((rx + tx) / 900), flows: Math.round(live.flows * (0.8 + 0.4 * this.rand())), eps: live.eps, countries: live.countries, procs: live.procs, drops: 0, defcon: 5, apps: mix(rx + tx) });
+      sec.push({ ts, rx: Math.round(rx), tx: Math.round(tx), pps: Math.round((rx + tx) / 900), flows: Math.round(live.flows * (0.8 + 0.4 * this.rand())), eps: Math.max(1, Math.round(wEps[i])), countries: Math.max(1, Math.round(wCc[i])), procs: Math.max(1, Math.round(wProcs[i])), drops: 0, defcon: 5, apps: mix(rx + tx) });
     }
     this.history = sec;
     const mins = [];
@@ -351,6 +365,49 @@ export class DemoSimulator {
     }
     this.historyMin = mins;
     this.minuteAcc = [];
+  }
+
+  /** Half an hour of earlier lookups, so the DNS page opens with history:
+   *  steady background chatter plus bursts when a page loads. */
+  synthDns(now) {
+    const weights = new Map(BROWSING);
+    const names = [...this.catalog.values()].filter((c) => c.name && c.scope !== 'lan' && c.scope !== 'multicast');
+    const total = names.reduce((a, c) => a + (weights.get(c.key) || 1), 0);
+    const pickName = () => {
+      let r = this.rand() * total;
+      for (const c of names) if ((r -= weights.get(c.key) || 1) <= 0) return c;
+      return names[0];
+    };
+    const procs = [...this.procs.values()];
+    const ff = this.procs.get('firefox');
+    const pickProc = () => (ff && this.rand() < 0.7 ? ff : procs[Math.floor(this.rand() * procs.length)] || null);
+    const out = [];
+    const lookup = (ts, c, proc) => {
+      const r = this.rand();
+      const qtype = r < 0.8 ? 'A' : r < 0.92 ? 'HTTPS' : 'AAAA';
+      const ep = [...this.epById.values()].find((e) => e.ip === c.ip);
+      const cached = this.rand() < 0.35;
+      out.push({
+        ts: Math.round(ts), q: c.name, qtype, rcode: 'NOERROR', answers: qtype === 'A' ? [c.ip] : [], cname: c.cname || [],
+        eps: ep && qtype === 'A' ? [ep.id] : [], server: '127.0.0.53',
+        ms: Math.round((cached ? 0.2 + this.rand() * 1.6 : 8 + this.rand() * 38) * 10) / 10, proc: proc ? proc.id : 0,
+      });
+    };
+    const NX = ['wpad.home.arpa', 'nas.home.arpa', 'printer.home.arpa', 'telemetry.app.invalid'];
+    let level = 0.5;
+    for (let t = now - 1800e3; t < now - 2e3; t += 1000) {
+      level = Math.max(0.15, Math.min(1, level + (this.rand() - 0.5) * 0.06));
+      if (this.rand() < level * 0.12) lookup(t + this.rand() * 1000, pickName(), pickProc());
+      if (this.rand() < 0.012) { // a page load: a handful of names within a couple of seconds
+        const proc = pickProc();
+        const n = 3 + Math.floor(this.rand() * 8);
+        for (let i = 0; i < n; i++) lookup(t + this.rand() * 2500, pickName(), proc);
+      }
+      if (this.rand() < 0.0025) {
+        out.push({ ts: Math.round(t), q: NX[Math.floor(this.rand() * NX.length)], qtype: 'A', rcode: 'NXDOMAIN', answers: [], cname: [], eps: [], server: '127.0.0.53', ms: Math.round((2 + this.rand() * 20) * 10) / 10, proc: 0 });
+      }
+    }
+    return out.sort((a, b) => a.ts - b.ts);
   }
 
   // ── simulation step ───────────────────────────────────────────────────────

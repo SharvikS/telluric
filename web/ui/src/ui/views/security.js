@@ -29,7 +29,7 @@ export class SecurityView extends View {
     this.meter = h('div.threat-meter', [0, 1, 2, 3, 4].map(() => h('i')));
     const hero = h('div.card.sec-hero',
       h('div.lvl', this.lvlShield, h('div', h('small', 'Threat level'), this.lvlName)), this.meter, this.lvlBlurb);
-    const hm = h('div', { style: { position: 'absolute', inset: '4px 16px 12px 16px' } });
+    const hm = h('div', { style: { position: 'absolute', inset: '4px 16px 12px 16px', width: 'auto', height: 'auto' } });
     this.heat = new Heatmap(hm, {
       rows: SEV_ORDER.map((s) => ({ key: s, label: SEVERITY[s].label, color: SEVERITY[s].var })),
       format: (v) => `${v} alert event${v === 1 ? '' : 's'}`,
