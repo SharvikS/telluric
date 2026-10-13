@@ -81,7 +81,8 @@ immediately.
   "alerts":    [Alert, ...],
   "dns":       [DnsEvent, ...],
   "stats":     Stats,
-  "history":   [Stats, ...]
+  "history":   [Stats, ...],
+  "traces":    [Trace, ...]
 }
 ```
 
@@ -103,10 +104,10 @@ so that byte counters and rates stay fresh.
 ### `gone` — entities expired
 
 ```json
-{ "t": "gone", "eps": [12, 40], "flows": [77, 78, 79], "procs": [5] }
+{ "t": "gone", "eps": [12, 40], "flows": [77, 78, 79], "procs": [5], "traces": [2] }
 ```
 
-Clients should fade these out rather than pop them. All three arrays are
+Clients should fade these out rather than pop them. All arrays are
 optional.
 
 ### `dns` — DNS transactions observed on the wire
@@ -123,6 +124,17 @@ optional.
 
 An alert with an `id` the client already knows is an update (for example,
 the beacon count rose); replace it.
+
+### `trace` — a path traced by traceroute / mtr / tracepath
+
+When the machine runs a traceroute, the engine matches each outgoing
+low-TTL probe with the ICMP "time exceeded" that quotes it, and streams the
+reconstructed path. Paths update as hops answer (mtr re-probes), and expire
+with a `gone.traces` entry after a minute and a half of silence.
+
+```json
+{ "t": "trace", "items": [Trace, ...] }
+```
 
 ### `stats` — global counters, ≈4 Hz
 
@@ -215,6 +227,7 @@ in flight). Clients should keep such shots briefly (≈1 s) or drop them.
   "sni": "www.youtube.com", "alpn": "h2", "tlsv": "1.3",
   "ja4": "t13d1516h2_8daaf6152771_e5627efa2ab1",
   "ech": false,
+  "pq": true,
   "bytesIn": 18000000, "bytesOut": 350000,
   "pktsIn": 12500, "pktsOut": 4100,
   "rateIn": 1200000, "rateOut": 11000,
@@ -229,9 +242,11 @@ in flight). Clients should keep such shots briefly (≈1 s) or drop them.
 * `app`: application protocol, see [Apps](#apps).
 * `dir`: who initiated: `out` (this machine) or `in` (the remote).
 * `state`: `syn` | `est` | `fin` | `rst` | `closed` (TCP) or `active` (others).
-* `rtt`: handshake round-trip time in ms (TCP SYN→SYN/ACK); null if unknown.
-* `sni`, `alpn`, `tlsv`, `ja4`, `ech`: from the TLS ClientHello (also
-  for QUIC, whose Initial packets the engine decrypts). Null when not TLS.
+* `rtt`: handshake round-trip time in ms (TCP SYN→SYN/ACK, QUIC client
+  Initial→first server long-header packet); null if unknown.
+* `sni`, `alpn`, `tlsv`, `ja4`, `ech`, `pq`: from the TLS ClientHello (also
+  for QUIC, whose Initial packets the engine decrypts). `pq` means the client
+  offered a post-quantum hybrid key exchange (ML-KEM). Absent when not TLS.
 
 ### Proc — a local process with network activity
 
@@ -299,6 +314,29 @@ runs unprivileged, forwarded traffic).
   `novel`, `tls`.
 * `ep`, `flow`, `proc`: related entity ids, 0 when not applicable.
 * `evidence`: detector-specific key/value pairs for the detail view.
+
+### Trace
+
+```json
+{
+  "id": 1,
+  "dst": "160.79.104.10",
+  "name": "api.anthropic.com",
+  "ts": 1760342400000,
+  "done": true,
+  "hops": [
+    { "n": 1, "ip": "192.168.1.1", "rtt": 1.1, "scope": "lan", "lat": null, "lon": null },
+    { "n": 5, "ip": "198.18.4.1", "rtt": 14.2, "scope": "public", "lat": 51.5074, "lon": -0.1278,
+      "city": "London", "cc": "GB", "asn": 64510, "org": "Example Transit" }
+  ]
+}
+```
+
+* `hops` are sorted by `n`, the hop number (the probe's TTL). Hops that
+  never answered are simply absent, so `n` can skip.
+* `done`: the destination itself answered; the last hop is the target.
+* `rtt`: best round trip in ms to that hop.
+* Draw the path through located hops in order; LAN hops sit at home.
 
 ### Stats
 

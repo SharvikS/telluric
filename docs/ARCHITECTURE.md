@@ -1,7 +1,7 @@
 # Architecture
 
 Telluric is a single static Go binary (the engine plus the embedded web UI)
-and an optional ~300-line privileged capture helper. Everything between the
+and an optional, small privileged capture helper. Everything between the
 network card and the pixels on the globe was written for this project: the
 packet ring reader, the protocol decoders, the QUIC decryption, the MaxMind DB
 reader, the WebSocket server, the anomaly detectors and the WebGL2 renderer.
@@ -80,8 +80,9 @@ Decoders fill a caller-owned `Packet` value whose payload slices alias the
 ring buffer. Nothing escapes to the heap on the hot path; state that must
 outlive a frame (a reassembly buffer, a name) is copied explicitly. Addresses
 are `netip.Addr`, a comparable value type, so flow keys are plain structs
-usable as map keys. Every decoder is covered by Go fuzz tests and by
-differential tests against Wireshark's dissectors (`tshark`).
+usable as map keys. Every parser is fuzzed; the TLS and QUIC paths and the
+capture helper's pcapng stream are also checked differentially against
+Wireshark's dissectors (`tshark`).
 
 ### Seeing names inside encrypted traffic
 
