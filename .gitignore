@@ -1,0 +1,27 @@
+# build output
+/bin/
+/dist/
+
+# captures can contain private traffic: never commit them
+*.pcap
+*.pcapng
+!testdata/**/*.pcap
+
+# downloaded data (geolocation databases, threat feeds, caches)
+/data/
+*.mmdb
+*.mmdb.gz
+/tools/geogen/.cache/
+
+# go tooling
+*.test
+*.prof
+coverage.out
+/testdata/fuzz/**/corpus-tmp/
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/
+*.swp
+node_modules/
