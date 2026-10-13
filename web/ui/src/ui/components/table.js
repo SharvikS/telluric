@@ -3,8 +3,12 @@ import { icon } from '../icons.js';
 import { openMenu, openPopover, closePopover } from './popover.js';
 import { emptyState } from './controls.js';
 import { esc } from '../../util/format.js';
+import { motion } from '../../app/motion.js';
 
 const OVERSCAN = 8;
+// Live data re-sorts at most this often, and never under the pointer, so
+// rows don't keep sliding away from the cursor.
+const RESORT_MS = 3000;
 
 /**
  * Virtualized data table.
@@ -81,6 +85,8 @@ export class DataTable {
     this.head.style.position = 'sticky';
     this.head.style.top = '0';
     this.body.addEventListener('scroll', () => this.schedule(), { passive: true });
+    this.frame.addEventListener('pointerenter', () => { this.hovering = true; });
+    this.frame.addEventListener('pointerleave', () => { this.hovering = false; });
     this.body.addEventListener('keydown', (e) => this.key(e));
     new ResizeObserver(() => {
       const w = this.body.clientWidth;
@@ -148,10 +154,11 @@ export class DataTable {
   /** Replace the dataset (filter + sort + render). */
   setRows(rows) {
     this.rows = rows;
-    this.apply();
+    this.apply(true);
   }
 
-  apply() {
+  /** live: a data refresh (order may be held) rather than a user action. */
+  apply(live = false) {
     const o = this.o;
     let v = this.rows;
     for (const f of this.filters) {
@@ -169,11 +176,34 @@ export class DataTable {
     if (col && col.sort) {
       const dir = this.sort.dir === 'asc' ? 1 : -1;
       const key = o.rowKey;
-      v = v.map((r) => [col.sort(r), r]).sort((a, b) => {
+      const sorted = (rows) => rows.map((r) => [col.sort(r), r]).sort((a, b) => {
         if (a[0] < b[0]) return -dir;
         if (a[0] > b[0]) return dir;
         return key(a[1]) < key(b[1]) ? -1 : 1;
       }).map((x) => x[1]);
+      const now = performance.now();
+      const prev = this.order;
+      if (live && prev && (this.hovering || now - this.lastSort < RESORT_MS)) {
+        // Hold the order: known rows keep their places; newcomers slot in
+        // where they sort (so a time-sorted log still grows at the top).
+        const known = [], fresh = [];
+        for (const r of v) (prev.has(key(r)) ? known : fresh).push(r);
+        known.sort((a, b) => prev.get(key(a)) - prev.get(key(b)));
+        const before = (a, b) => {
+          const x = col.sort(a), y = col.sort(b);
+          return x < y ? dir < 0 : x > y ? dir > 0 : key(a) < key(b);
+        };
+        for (const f of sorted(fresh)) {
+          let i = 0;
+          while (i < known.length && !before(f, known[i])) i++;
+          known.splice(i, 0, f);
+        }
+        v = known;
+      } else {
+        v = sorted(v);
+        this.lastSort = now;
+      }
+      this.order = new Map(v.map((r, i) => [key(r), i]));
     }
     // Expansion inserts child rows after their parent.
     if (o.expand && this.expanded.size) {
@@ -249,11 +279,18 @@ export class DataTable {
         requestAnimationFrame(() => { el.style.transition = ''; });
       }
       el._row = r;
+      const from = el._index;
       el._index = i;
       const y = `translateY(${i * this.rowH}px)`;
       if (el._y !== y) {
         el._y = y;
-        el.style.transform = y;
+        if (!isNew && from != null && Math.abs(from - i) > 3 && !motion.reduced) {
+          // Long jumps cross-fade instead of sliding through other rows.
+          el.style.transition = 'none';
+          el.style.transform = y;
+          el.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' });
+          requestAnimationFrame(() => { el.style.transition = ''; });
+        } else el.style.transform = y;
       }
       if (r.__child) {
         const td = el.firstChild;

@@ -600,7 +600,7 @@ export class App {
       if (f.proc) f.procEps = this.procEps(f.proc);
       this.topbar.setLive(this.paused, this.buffered);
       const c = this.store.alertCounts();
-      this.nav.setBadge('security', c.critical + c.high + c.medium + c.low);
+      this.nav.setBadge('security', c.open); // same number as the Open tab
       this.topbar.setUnread(this.unreadCount());
       if (!this.nav._placed) {
         this.nav.setActive(this.router.current.name);

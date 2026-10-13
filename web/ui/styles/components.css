@@ -364,7 +364,7 @@ kbd, .kbd {
 .dt-row {
   position: absolute; left: 0; right: 0; height: var(--row-h); display: flex; align-items: center; cursor: pointer;
   border-bottom: 1px solid var(--border); font-size: var(--text-sm);
-  transition: transform var(--dur-slower) var(--ease-out), background-color var(--dur-fast);
+  transition: transform var(--dur-slow) var(--ease-out), background-color var(--dur-fast);
 }
 .dt-row:hover { background: var(--hover); }
 .dt-row.sel { background: var(--accent-softer); box-shadow: inset 2px 0 0 var(--accent); }

@@ -59,14 +59,14 @@ void main() {
   float side = pl > 1e-4 ? abs(dot(pn / pl, normalize(uEye - mid))) : 1.0;
   float longK = smoothstep(0.55, 1.3, theta) * (hl > 0.5 ? 0.0 : 1.0) * (1.0 - uCinema);
   float onEdge = longK * (1.0 - smoothstep(0.04, 0.34, side));
-  float w = uWidth * (0.7 + 0.55 * iC.w + 0.4 * iE.y) * (hl > 0.5 ? 1.6 : 1.0) * (1.0 + iD.z * 0.6) * (1.0 - 0.35 * onEdge);
+  float w = uWidth * (0.7 + 0.55 * iC.w + 0.4 * iE.y) * (hl > 0.5 ? 1.35 : 1.0) * (1.0 + iD.z * 0.6) * (1.0 - 0.35 * onEdge);
   c.xy += nrm * aCorner.y * (w * 2.0 / uViewport) * c.w;
   gl_Position = c;
   vUv = vec2(tc, aCorner.y);
   float dim = hl < -0.5 ? 0.12 : 1.0;
   vec3 col = iC.rgb;
   float strength = mix(0.24 + 0.64 * iC.w, 0.24 + 0.76 * iC.w, uCinema);
-  vColor = vec4(col, strength * fade * dim * (hl > 0.5 ? 1.6 : 1.0) * (1.0 - 0.78 * onEdge));
+  vColor = vec4(col, strength * fade * dim * (hl > 0.5 ? 1.3 : 1.0) * (1.0 - 0.78 * onEdge));
   vParams = vec4(iD.w, iB.w, iD.z, theta);
   vFlash = iE.y * fade * dim;
 }`;

@@ -77,8 +77,8 @@ void main() {
   float e3 = edge * edge * edge;
   float k4 = k * k * k * k;
   float kb = vColor.a * body * fall * 1.3;
-  float kh = vColor.a * e3 * e3 * k4 * k4 * 0.45;
-  vec3 c = mix(vColor.rgb, vec3(1.0), 0.3 * (1.0 - uLight) * kh / max(kb + kh, 1e-4));
+  float kh = vColor.a * e3 * e3 * k4 * k4 * 0.3;
+  vec3 c = mix(vColor.rgb, vec3(1.0), 0.25 * (1.0 - uLight) * kh / max(kb + kh, 1e-4));
   outColor = premul(c, kb + kh);
 }`;
 
@@ -114,8 +114,9 @@ void main() {
   if (r2 > 1.0) discard;
   float glow = exp(-r2 * 5.0);
   float core = exp(-r2 * 28.0);
-  float k = (glow * 0.75 + core * 1.25) * vColor.a;
-  vec3 c = mix(vColor.rgb, vec3(1.0), 0.35 * (1.0 - uLight) * core * 1.25 / max(glow * 0.75 + core * 1.25, 1e-4));
+  // A small, colour-true head; Cinema's higher gain brings back the flare.
+  float k = (glow * 0.55 + core * 0.9) * vColor.a;
+  vec3 c = mix(vColor.rgb, vec3(1.0), 0.22 * (1.0 - uLight) * core * 0.9 / max(glow * 0.55 + core * 0.9, 1e-4));
   outColor = premul(c, k);
 }`;
 
@@ -131,7 +132,7 @@ export class Comets {
     this.alive = 0;
     this.spawned = 0;
     this.dim = 1;
-    layerTheme(this, 'dark', false, { alphaK: 1.3, cinemaGain: 1.5 });
+    layerTheme(this, 'dark', false, { alphaK: 1.3, cinemaGain: 1.9 });
 
     this.trail = createProgram(gl, 'comet-trail', TRAIL_VS, TRAIL_FS);
     this.headProg = createProgram(gl, 'comet-head', HEAD_VS, HEAD_FS);
@@ -148,7 +149,7 @@ export class Comets {
   }
 
   setTheme(mode, cinema) {
-    layerTheme(this, mode, cinema, { alphaK: 1.3, cinemaGain: 1.5 });
+    layerTheme(this, mode, cinema, { alphaK: 1.3, cinemaGain: 1.9 });
   }
 
   makeVao(prog, name, verts) {
