@@ -96,7 +96,7 @@ void main() {
   vec2 uv = vUv;
   if (uCrt > 0.5) {
     vec2 c = uv * 2.0 - 1.0;
-    c *= 1.0 + 0.045 * dot(c, c);
+    c *= 1.0 + 0.06 * dot(c, c);
     uv = c * 0.5 + 0.5;
   }
   // Glitch: horizontal slice displacement and RGB split, driven by alerts.
@@ -121,7 +121,7 @@ void main() {
   col += (hash(vUv * uResolution + fract(uTime * 7.13) * 100.0) - 0.5) * 0.028;
 
   if (uCrt > 0.5) {
-    float scan = 0.82 + 0.18 * sin(vUv.y * uResolution.y * 3.14159);
+    float scan = 0.68 + 0.32 * pow(abs(sin(vUv.y * uResolution.y * 1.5708)), 0.6);
     vec3 mask = vec3(1.0);
     float mx = mod(gl_FragCoord.x, 3.0);
     mask = mx < 1.0 ? vec3(1.08, 0.94, 0.94) : mx < 2.0 ? vec3(0.94, 1.08, 0.94) : vec3(0.94, 0.94, 1.08);

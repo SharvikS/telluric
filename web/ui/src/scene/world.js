@@ -2,6 +2,7 @@ import { Placement } from './placement.js';
 import { Arcs } from './arcs.js';
 import { Comets } from './comets.js';
 import { Markers, MK } from './markers.js';
+import { Traces } from './traces.js';
 import { appColor, THREAT_COLOR } from '../config.js';
 import { arcLift, clamp, dot3, len3, project, DEG } from '../util/math.js';
 
@@ -32,6 +33,8 @@ export class World {
     this.arcs = renderer.addLayer(new Arcs(renderer.gl));
     this.markers = renderer.addLayer(new Markers(renderer.gl));
     this.comets = renderer.addLayer(new Comets(renderer.gl));
+    this.traces = new Traces(renderer, this);
+    this.lastFrame = null;
     this.time = 0;
     this.t0 = performance.now();
     this.pending = [];
@@ -71,6 +74,8 @@ export class World {
       if (big) this.markers.pulse(p, MK.ALERT, col, 0.26, this.now() + 0.35, 3.4, 1.0);
     });
     store.on('pkts', (batch) => this.onPackets(batch));
+    store.on('trace', (tr, isNew) => this.traces.onTrace(tr, isNew, this.now()));
+    store.on('trace-gone', (tr) => this.traces.onGone(tr, this.now()));
   }
 
   now() {
@@ -81,6 +86,7 @@ export class World {
     for (const id of [...this.arcs.items.keys()]) this.arcs.items.delete(id);
     this.pending.length = 0;
     this.buckets.clear();
+    this.traces.clear();
     this.screen.clear();
   }
 
@@ -160,7 +166,9 @@ export class World {
     frame.focus = this.focus;
     frame.hasHome = this.placement.hasHome;
     frame.home = this.placement.home;
+    this.lastFrame = frame;
     this.arcs.update(frame, this.placement, this.store, dt);
+    this.traces.frame(frame);
     this.buildMarkers(frame);
     this.updateScreen(frame);
     if (frame.time - this.heatAt > 0.5) {
@@ -207,6 +215,7 @@ export class World {
         m.push(c, MK.ORBIT, [0.7, 0.75, 0.9], 0.45, Math.sin(r) * alt, 0, 0, 0.8);
       }
     }
+    this.traces.pushMarkers(m, t, px);
     m.end(t);
   }
 
@@ -242,6 +251,21 @@ export class World {
       this.homeScreen.visible = !!r && !this.occluded(eye, this.placement.home);
       if (r) { this.homeScreen.x = r[0]; this.homeScreen.y = r[1]; }
     }
+  }
+
+  /** Screen position (CSS px) of an arbitrary world point, with horizon test. */
+  projectPoint(p, out = { x: 0, y: 0, visible: false, front: 0 }) {
+    const f = this.lastFrame;
+    if (!f) { out.visible = false; return out; }
+    const cam = f.camera;
+    const r = project(cam.viewProj, p, f.cssWidth, f.cssHeight, this._tmp || (this._tmp = [0, 0, 0, 0]));
+    if (!r) { out.visible = false; return out; }
+    out.x = r[0];
+    out.y = r[1];
+    out.visible = !this.occluded(cam.eye, p);
+    const eye = cam.eye, lp = len3(p) || 1;
+    out.front = ((eye[0] - p[0]) * p[0] + (eye[1] - p[1]) * p[1] + (eye[2] - p[2]) * p[2]) / (lp * (Math.hypot(eye[0] - p[0], eye[1] - p[1], eye[2] - p[2]) || 1));
+    return out;
   }
 
   occluded(eye, p) {

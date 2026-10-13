@@ -166,8 +166,8 @@ void main() {
   float term = exp(-tq * tq);
   col += vec3(0.85, 0.32, 0.12) * term * 0.010 * (0.4 + 0.6 * land);
   vec3 R = reflect(-uSun, n);
-  float spec = pow(max(dot(R, V), 0.0), 90.0) * (1.0 - land) * step(0.0, NdotL);
-  col += vec3(0.5, 0.75, 1.0) * spec * 0.22;
+  float spec = pow(max(dot(R, V), 0.0), 220.0) * (1.0 - land) * step(0.0, NdotL);
+  col += vec3(0.5, 0.75, 1.0) * spec * 0.10;
 
   // ── home radar: range rings every 10° and a rotating sweep ──
   if (uHasHome > 0.5) {

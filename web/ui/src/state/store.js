@@ -22,7 +22,8 @@ function assignFull(prev, next) {
  *
  * Events: reset, hello, home, snapshot, ep (ep, isNew), ep-gone (ep),
  * flow (flow, isNew), flow-gone (flow), proc (proc, isNew), proc-gone (proc),
- * dns (items), alert (alert, isNew), stats (stats), pkts (batch).
+ * dns (items), alert (alert, isNew), stats (stats), pkts (batch),
+ * trace (trace, isNew), trace-gone (trace).
  */
 export class Store extends Emitter {
   constructor() {
@@ -41,6 +42,7 @@ export class Store extends Emitter {
     this.procs = new Map();
     this.alerts = new Map();
     this.alertOrder = [];
+    this.traces = new Map();
     this.dns = [];
     this.stats = null;
     this.history = [];
@@ -79,6 +81,7 @@ export class Store extends Emitter {
         for (const e of msg.endpoints || []) this.upsertEp(e);
         for (const f of msg.flows || []) this.upsertFlow(f);
         for (const a of msg.alerts || []) this.upsertAlert(a);
+        for (const tr of msg.traces || []) this.upsertTrace(tr);
         if (msg.dns && msg.dns.length) this.addDns(msg.dns);
         if (msg.history) {
           this.history = msg.history.slice(-HISTORY);
@@ -100,12 +103,16 @@ export class Store extends Emitter {
         for (const id of msg.flows || []) this.removeFlow(id);
         for (const id of msg.eps || []) this.removeEp(id);
         for (const id of msg.procs || []) this.removeProc(id);
+        for (const id of msg.traces || []) this.removeTrace(id);
         break;
       case 'dns':
         this.addDns(msg.items || []);
         break;
       case 'alert':
         for (const a of msg.items || []) this.upsertAlert(a);
+        break;
+      case 'trace':
+        for (const tr of msg.items || []) this.upsertTrace(tr);
         break;
       case 'stats': {
         const { t, ...stats } = msg;
@@ -251,6 +258,26 @@ export class Store extends Emitter {
       }
     }
     this.emit('alert', alert, isNew);
+  }
+
+  upsertTrace(tr) {
+    const prev = this.traces.get(tr.id);
+    if (prev) {
+      assignFull(prev, tr);
+      this.emit('trace', prev, false);
+      return prev;
+    }
+    const t = Object.assign(tr, { _born: performance.now() });
+    this.traces.set(t.id, t);
+    this.emit('trace', t, true);
+    return t;
+  }
+
+  removeTrace(id) {
+    const t = this.traces.get(id);
+    if (!t) return;
+    this.traces.delete(id);
+    this.emit('trace-gone', t);
   }
 
   setStats(s) {

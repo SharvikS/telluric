@@ -53,6 +53,18 @@ export class Feed {
       const arrow = f.dir === 'in' ? '←' : '→';
       this.push('conn', f.dir === 'in' ? 'IN' : 'CONN', `${who} ${arrow} <b>${host}</b>:${f.rport} ${String(f.app).toUpperCase()}${where}`, f.start);
     });
+    const traced = new Set();
+    store.on('trace', (tr, isNew) => {
+      const dst = esc(tr.name || tr.dst);
+      if (isNew && !tr.done) this.push('trace', 'TRACE', `⋯ probing <b>${dst}</b>`, tr.ts, true);
+      if (tr.done && !traced.has(tr.id)) {
+        traced.add(tr.id);
+        const last = tr.hops[tr.hops.length - 1];
+        const n = last ? last.n : tr.hops.length;
+        const rtt = last && last.rtt != null ? ` · ${Math.round(last.rtt)} ms` : '';
+        this.push('trace', 'TRACE', `→ <b>${dst}</b> · ${n} hops${rtt}`, Date.now(), true);
+      }
+    });
     store.on('alert', (a, isNew) => {
       if (!isNew) return;
       const sev = SEVERITY[a.sev] || SEVERITY.medium;
