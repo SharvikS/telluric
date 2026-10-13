@@ -15,7 +15,7 @@
 ![deps](https://img.shields.io/badge/dependencies-x%2Fsys%20only-success)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
-![Telluric: an mtr traceroute drawn hop by hop from Frankfurt to San Francisco while malware's generated domains fail to resolve — DEFCON 2](docs/media/hero.jpg)
+![Telluric's Overview: live throughput, threat level and protocol mix around a WebGL globe of every connection, with an mtr traceroute drawn hop by hop across the Atlantic](docs/media/hero.jpg)
 
 </div>
 
@@ -26,18 +26,32 @@ the wire can tell (behind a local caching resolver such as systemd-resolved,
 only the resolver's own query is visible). Run `mtr`
 and the route draws itself hop by hop across the planet. A stack of
 detectors watches the traffic for beaconing malware, generated domains, DNS
-tunnels, scans, exfiltration, leaked passwords and ARP spoofing. When
-something is wrong, the globe turns red.
+tunnels, scans, exfiltration, leaked passwords and ARP spoofing. Findings
+land in a Security console where you acknowledge, resolve or mute them.
 
 *Telluric currents are the electric currents that flow through the Earth.
 These are yours.*
 
-| The alert theatre: an exfiltration, caught and named | `mtr` across the Atlantic, reconstructed from the wire |
+| Live map with the host inspector | Security: incidents with a workflow |
 |---|---|
-| ![Alert theatre](docs/media/alert-theatre.jpg) | ![Traceroute](docs/media/traceroute.jpg) |
+| ![Live map](docs/media/map.jpg) | ![Security](docs/media/security.jpg) |
+| **Connections: every conversation, live** | **Light theme** |
+| ![Connections](docs/media/connections.jpg) | ![Light theme](docs/media/light.jpg) |
 
-*Every frame above is the real engine running `--demo`: synthetic packets
-go through the same decoders and detectors as live traffic.*
+*Screens show the demo world. Synthetic packets go through the same
+decoders and detectors as live traffic.*
+
+The console has nine views: Overview, Live map, Connections, Hosts,
+Processes, DNS, Traceroutes, Security and Settings. It also offers:
+- live, virtualized data tables with filters and CSV/JSON export
+- entity drawers with a shared-element transition
+- a ⌘K command palette
+- a 5 m – 24 h time range backed by the engine's history
+- a system-status page
+- light and dark themes with an animated switch
+
+Motion, from the boot sequence to rows that glide when ranks change,
+respects `prefers-reduced-motion`.
 
 ```console
 $ make build && ./bin/telluric --demo
@@ -157,8 +171,11 @@ Telluric picks the first source that works:
 | **Anomalies** | Streaming Half-Space Trees over seven per-flow features. |
 
 Alerts name the responsible process whenever there is one (an ARP spoof or
-an inbound scan comes from another device). The global threat level, the
-**DEFCON** meter, is a decayed, severity-weighted alert pressure. Details,
+an inbound scan comes from another device). They form incidents:
+recurrences raise a count, and you can acknowledge, resolve (a recurrence
+reopens) or mute them. Mutes persist, and all open tabs stay in sync. The
+global **threat level** (Normal, Guarded, Elevated, High, Critical) is a
+decayed, severity-weighted alert pressure that ignores muted findings. Details,
 thresholds and false-positive notes are in [docs/DETECTION.md](docs/DETECTION.md).
 The demo plays every scenario every four minutes.
 
