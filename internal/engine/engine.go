@@ -84,6 +84,7 @@ type Engine struct {
 	ifnames map[int32]string
 
 	shots   shotBatch
+	trace   tracer
 	pdns    passiveDNS
 	dnsOut  []wire.DNSEvent
 	dnsLog  []wire.DNSEvent // recent events for snapshots
@@ -129,6 +130,7 @@ func New(cfg Config) *Engine {
 		geoReady:  make(chan struct{}, 1),
 		ifnames:   map[int32]string{},
 		pdns:      newPassiveDNS(),
+		trace:     newTracer(),
 	}
 	e.shots.reset()
 	if cfg.Observer != nil {

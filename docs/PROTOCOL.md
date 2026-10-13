@@ -81,7 +81,8 @@ immediately.
   "alerts":    [Alert, ...],
   "dns":       [DnsEvent, ...],
   "stats":     Stats,
-  "history":   [Stats, ...]
+  "history":   [Stats, ...],
+  "traces":    [Trace, ...]
 }
 ```
 
@@ -103,10 +104,10 @@ so that byte counters and rates stay fresh.
 ### `gone` — entities expired
 
 ```json
-{ "t": "gone", "eps": [12, 40], "flows": [77, 78, 79], "procs": [5] }
+{ "t": "gone", "eps": [12, 40], "flows": [77, 78, 79], "procs": [5], "traces": [2] }
 ```
 
-Clients should fade these out rather than pop them. All three arrays are
+Clients should fade these out rather than pop them. All arrays are
 optional.
 
 ### `dns` — DNS transactions observed on the wire
@@ -123,6 +124,17 @@ optional.
 
 An alert with an `id` the client already knows is an update (for example,
 the beacon count rose); replace it.
+
+### `trace` — a path traced by traceroute / mtr / tracepath
+
+When the machine runs a traceroute, the engine matches each outgoing
+low-TTL probe with the ICMP "time exceeded" that quotes it, and streams the
+reconstructed path. Paths update as hops answer (mtr re-probes), and expire
+with a `gone.traces` entry after a minute and a half of silence.
+
+```json
+{ "t": "trace", "items": [Trace, ...] }
+```
 
 ### `stats` — global counters, ≈4 Hz
 
@@ -302,6 +314,29 @@ runs unprivileged, forwarded traffic).
   `novel`, `tls`.
 * `ep`, `flow`, `proc`: related entity ids, 0 when not applicable.
 * `evidence`: detector-specific key/value pairs for the detail view.
+
+### Trace
+
+```json
+{
+  "id": 1,
+  "dst": "160.79.104.10",
+  "name": "api.anthropic.com",
+  "ts": 1760342400000,
+  "done": true,
+  "hops": [
+    { "n": 1, "ip": "192.168.1.1", "rtt": 1.1, "scope": "lan", "lat": null, "lon": null },
+    { "n": 5, "ip": "198.18.4.1", "rtt": 14.2, "scope": "public", "lat": 51.5074, "lon": -0.1278,
+      "city": "London", "cc": "GB", "asn": 64510, "org": "Example Transit" }
+  ]
+}
+```
+
+* `hops` are sorted by `n`, the hop number (the probe's TTL). Hops that
+  never answered are simply absent, so `n` can skip.
+* `done`: the destination itself answered; the last hop is the target.
+* `rtt`: best round trip in ms to that hop.
+* Draw the path through located hops in order; LAN hops sit at home.
 
 ### Stats
 

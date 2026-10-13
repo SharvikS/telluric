@@ -51,6 +51,11 @@ func (e *Engine) handleFrame(f *capture.Frame) {
 	}
 
 	out := e.outbound(f, p)
+	if out {
+		e.traceOut(p)
+	} else if p.Has(decode.LayerICMP) {
+		e.traceIn(p)
+	}
 	var key flowKey
 	key.proto = p.Proto
 	if out {

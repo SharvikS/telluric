@@ -316,3 +316,58 @@ func TestServices(t *testing.T) {
 		t.Error("org mapping")
 	}
 }
+
+func TestTracerouteReconstruction(t *testing.T) {
+	now := time.Now().UnixNano()
+	target := netip.MustParseAddr("8.8.8.8")
+	routers := []netip.Addr{router, netip.MustParseAddr("49.44.18.1"), netip.MustParseAddr("172.26.75.6"), netip.MustParseAddr("72.14.212.37")}
+	var frames []capture.Frame
+	add := func(ms int, out bool, pkt []byte) {
+		pt := capture.PacketHost
+		if out {
+			pt = capture.PacketOutgoing
+		}
+		frames = append(frames, capture.Frame{TS: now + int64(ms)*int64(time.Millisecond), PktType: pt, Proto: decode.EtherTypeIPv4, WireLen: uint32(len(pkt)), Data: pkt})
+	}
+	for ttl := 1; ttl <= 5; ttl++ {
+		probe := craft.UDP{Src: me, Dst: target, SrcPort: 45000, DstPort: uint16(33433 + ttl), Payload: make([]byte, 32), TTL: uint8(ttl)}.Packet()
+		add(ttl*10, true, probe)
+		if ttl <= len(routers) { // time exceeded in transit, from the router at this hop
+			add(ttl*10+ttl*3, false, craft.ICMPError(routers[ttl-1], me, 11, 0, probe))
+		} else { // the target itself: port unreachable
+			add(ttl*10+17, false, craft.ICMPError(target, me, 3, 3, probe))
+		}
+	}
+	loc := fakeLocator{routers[1]: {HasCoord: true, Lat: 19.07, Lon: 72.87, City: "Mumbai", CC: "IN", ASN: 55836, Org: "Reliance Jio"}}
+	eng := New(Config{Source: &sliceSource{frames: frames}, Mode: "replay", Locator: loc})
+	rec := &recorder{}
+	eng.Subscribe(rec)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	eng.Run(ctx)
+
+	var last wire.Trace
+	for _, raw := range rec.text {
+		var m struct {
+			T     string
+			Items []wire.Trace
+		}
+		if json.Unmarshal(raw, &m) == nil && m.T == "trace" {
+			last = m.Items[len(m.Items)-1]
+		}
+	}
+	if last.Dst != "8.8.8.8" || !last.Done || len(last.Hops) != 5 {
+		t.Fatalf("trace %+v", last)
+	}
+	for i, h := range last.Hops {
+		if h.N != i+1 {
+			t.Fatalf("hop order %+v", last.Hops)
+		}
+	}
+	if last.Hops[0].Scope != "lan" || last.Hops[1].City != "Mumbai" || last.Hops[4].IP != "8.8.8.8" {
+		t.Fatalf("hops %+v", last.Hops)
+	}
+	if math.Abs(last.Hops[2].RTT-9) > 0.01 {
+		t.Fatalf("hop 3 RTT %v, want 9 ms", last.Hops[2].RTT)
+	}
+}

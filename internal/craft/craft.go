@@ -153,6 +153,18 @@ func ICMPEcho(src, dst netip.Addr, reply bool, id, seq uint16, data []byte) []by
 	return IPv6(src, dst, 58, 64, m)
 }
 
+// ICMPEchoTTL builds an ICMP (v4) echo request with a chosen TTL, the way
+// mtr probes each hop.
+func ICMPEchoTTL(src, dst netip.Addr, id, seq uint16, ttl uint8, data []byte) []byte {
+	m := make([]byte, 8+len(data))
+	m[0] = 8
+	binary.BigEndian.PutUint16(m[4:], id)
+	binary.BigEndian.PutUint16(m[6:], seq)
+	copy(m[8:], data)
+	binary.BigEndian.PutUint16(m[2:], checksum(0, m))
+	return IPv4(src, dst, 1, ttl, 0, m)
+}
+
 // ICMPError builds an ICMP error (type/code) quoting the start of orig, the
 // offending IP packet, as routers do.
 func ICMPError(src, dst netip.Addr, typ, code uint8, orig []byte) []byte {

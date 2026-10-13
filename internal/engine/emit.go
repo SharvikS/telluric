@@ -126,7 +126,8 @@ func (e *Engine) flushDeltas() {
 		e.dnsOut = nil
 	}
 	e.flushAlerts()
-	if len(e.gone.Flows)+len(e.gone.EPs)+len(e.gone.Procs) > 0 {
+	e.flushTraces()
+	if len(e.gone.Flows)+len(e.gone.EPs)+len(e.gone.Procs)+len(e.gone.Traces) > 0 {
 		e.broadcast(wire.EncodeGone(e.gone), true, false)
 		e.gone = wire.Gone{}
 	}
@@ -278,6 +279,10 @@ func (e *Engine) snapshot() wire.Snapshot {
 	}
 	if s.History == nil {
 		s.History = []wire.Stats{}
+	}
+	s.Traces = []wire.Trace{}
+	for _, t := range e.trace.paths {
+		s.Traces = append(s.Traces, e.wireTrace(t))
 	}
 	return s
 }

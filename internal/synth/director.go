@@ -33,6 +33,7 @@ func (s *Source) boot(now int64) {
 	s.periodic(conn{sv: telemetry, p: pFirefox, exchanges: 1, resp: 600}, now+3*sec, 45*time.Second, 2*time.Hour)
 	s.ntpLoop(now + 2*sec)
 	s.lanChatter(now)
+	s.traceroute(now + 5*sec)
 	s.nextBrowse = now + 1500*ms
 	s.nextBackground = now + 6*sec
 	s.nextIncident = now + 8*sec
@@ -244,6 +245,39 @@ func (s *Source) gameSession(at int64, d time.Duration) {
 	s.add(ss)
 }
 
+// traceroute: someone runs mtr to api.anthropic.com every couple of
+// minutes — ICMP echo probes with rising TTLs, "time exceeded" from each
+// router on the way across the Atlantic, an echo reply from the target.
+func (s *Source) traceroute(at int64) {
+	ss := &session{}
+	id := uint16(s.rng.Uint32())
+	seq := uint16(0)
+	next := at
+	ss.gen = func(now int64, ss *session) bool {
+		for next <= now+50*ms {
+			for round := range 3 {
+				for i, hop := range tracePath {
+					seq++
+					t := next + int64(round)*sec + int64(i)*40*ms
+					probe := craft.ICMPEchoTTL(me4, anthropic.ip, id, seq, uint8(i+1), make([]byte, 36))
+					ss.script = append(ss.script, pkt{at: t, out: true, et: decode.EtherTypeIPv4, data: probe, pktType: 0xff})
+					rtt := int64(hop.rtt * (1 + 0.05*s.rng.Float64()) * float64(ms))
+					var reply []byte
+					if hop.ip == anthropic.ip {
+						reply = craft.ICMPEcho(hop.ip, me4, true, id, seq, make([]byte, 36))
+					} else {
+						reply = craft.ICMPError(hop.ip, me4, 11, 0, probe)
+					}
+					ss.script = append(ss.script, pkt{at: t + rtt, et: decode.EtherTypeIPv4, data: reply, pktType: 0xff})
+				}
+			}
+			next += 150 * sec
+		}
+		return true
+	}
+	s.add(ss)
+}
+
 // ---------------------------------------------------------------- incidents
 
 func (s *Source) runIncident(i int, at int64) {
@@ -378,5 +412,5 @@ func (s *Source) dnsTunnel(at int64) {
 // Procs lists every process of the demo world (for tests).
 func Procs() []*procmap.Process {
 	return []*procmap.Process{pFirefox, pDiscord, pSpotify, pSteam, pClaude, pSSH, pResolved, pTimesync, pDocker,
-		pRclone, pTelegram, pNode, pPip, pCargo, pGame, pBeacon, pMalw, pMiner, pCurl, pTor, pDNSTun, pSSHvps}
+		pRclone, pTelegram, pNode, pPip, pCargo, pGame, pBeacon, pMalw, pMiner, pCurl, pTor, pDNSTun, pSSHvps, pMTR}
 }

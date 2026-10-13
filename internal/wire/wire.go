@@ -170,14 +170,41 @@ type Snapshot struct {
 	DNS       []DNSEvent `json:"dns"`
 	Stats     Stats      `json:"stats"`
 	History   []Stats    `json:"history"`
+	Traces    []Trace    `json:"traces"`
 }
 
 // Gone lists expired entities.
 type Gone struct {
-	T     string   `json:"t"`
-	EPs   []uint32 `json:"eps,omitempty"`
-	Flows []uint32 `json:"flows,omitempty"`
-	Procs []uint32 `json:"procs,omitempty"`
+	T      string   `json:"t"`
+	EPs    []uint32 `json:"eps,omitempty"`
+	Flows  []uint32 `json:"flows,omitempty"`
+	Procs  []uint32 `json:"procs,omitempty"`
+	Traces []uint32 `json:"traces,omitempty"`
+}
+
+// Hop is one router on a traced path.
+type Hop struct {
+	N     int      `json:"n"`
+	IP    string   `json:"ip"`
+	Name  string   `json:"name,omitempty"`
+	RTT   float64  `json:"rtt"`
+	Scope string   `json:"scope"`
+	Lat   *float64 `json:"lat"`
+	Lon   *float64 `json:"lon"`
+	City  string   `json:"city,omitempty"`
+	CC    string   `json:"cc,omitempty"`
+	ASN   uint32   `json:"asn,omitempty"`
+	Org   string   `json:"org,omitempty"`
+}
+
+// Trace is a path reconstructed from a traceroute/mtr seen on the wire.
+type Trace struct {
+	ID   uint32 `json:"id"`
+	Dst  string `json:"dst"`
+	Name string `json:"name,omitempty"`
+	TS   int64  `json:"ts"`
+	Done bool   `json:"done"`
+	Hops []Hop  `json:"hops"`
 }
 
 type items[T any] struct {
@@ -226,6 +253,9 @@ func EncodeDNS(v []DNSEvent) []byte { return mustJSON(items[DNSEvent]{"dns", v})
 
 // EncodeAlerts encodes an alert frame.
 func EncodeAlerts(v []Alert) []byte { return mustJSON(items[Alert]{"alert", v}) }
+
+// EncodeTraces encodes a traced-path frame.
+func EncodeTraces(v []Trace) []byte { return mustJSON(items[Trace]{"trace", v}) }
 
 // EncodeGone encodes an expiry frame.
 func EncodeGone(g Gone) []byte { g.T = "gone"; return mustJSON(g) }
