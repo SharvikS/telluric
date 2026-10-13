@@ -307,13 +307,18 @@ func dataSources(mode string, loc *geo.Locator, set *intel.Set) []wire.DataSourc
 		if db.Kind == "asn" {
 			name = "DB-IP Lite ASN"
 		}
-		out = append(out, wire.DataSource{Name: name, Kind: map[string]string{"city": "geo", "asn": "asn"}[db.Kind], Entries: int(db.Nodes), Updated: db.Built, OK: true, Detail: db.Type})
+		out = append(out, wire.DataSource{Name: name, Kind: map[string]string{"city": "geo", "asn": "asn"}[db.Kind], Updated: db.Built, OK: true,
+			Detail: fmt.Sprintf("%s · %.1fM search-tree nodes", db.Type, float64(db.Nodes)/1e6)})
 	}
 	if !have["city"] {
 		out = append(out, wire.DataSource{Name: "DB-IP Lite City", Kind: "geo", Detail: "not downloaded yet: endpoints can't be placed on the globe"})
 	}
 	for _, f := range set.Info() {
-		out = append(out, wire.DataSource{Name: f.Source, Kind: "intel", Entries: f.Entries, Updated: f.Updated.UnixMilli(), OK: true})
+		ds := wire.DataSource{Name: f.Source, Kind: "intel", Entries: f.Entries, Updated: f.Updated.UnixMilli(), OK: true}
+		if f.Entries == 0 {
+			ds.Detail = "the feed is currently empty"
+		}
+		out = append(out, ds)
 	}
 	if len(set.Info()) == 0 {
 		out = append(out, wire.DataSource{Name: "Threat intelligence", Kind: "intel", Detail: "no feeds loaded yet"})
