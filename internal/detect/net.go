@@ -205,7 +205,9 @@ func (x *exfilDet) observe(f *event.Flow) (event.Alert, bool) {
 	if !named {
 		score = 80
 	}
-	key := fmt.Sprintf("exfil:%d", f.ID)
+	// One incident per process and destination: repeated uploads to the
+	// same place grow one alert's occurrence count instead of piling up.
+	key := fmt.Sprintf("exfil:%s:%s", f.ProcName, f.Remote.Addr())
 	firstTime := !x.seen[f.ID]
 	x.seen[f.ID] = true
 	if !firstTime && f.BytesOut%(32<<20) >= 4<<20 {

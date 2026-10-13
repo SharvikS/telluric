@@ -210,3 +210,20 @@ func TestHalfSpaceTreesRankOutliers(t *testing.T) {
 		t.Fatalf("normal rank %.3f, outlier rank %.3f (ready=%v)", normal, outlier, ready)
 	}
 }
+
+func TestRepeatedExfilGroupsIntoOneIncident(t *testing.T) {
+	h, s := hub(t)
+	now := time.Now().UnixNano()
+	for id := uint32(1); id <= 3; id++ { // three separate uploads by curl to the same host
+		up := outFlow(id, "198.51.100.23:443", now)
+		up.BytesOut, up.BytesIn, up.ProcName, up.PID = 60<<20, 1<<20, "curl", int(9000+id)
+		h.Volume(now, up)
+	}
+	keys := map[string]bool{}
+	for _, a := range s.alerts {
+		keys[a.Key] = true
+	}
+	if len(s.alerts) != 3 || len(keys) != 1 {
+		t.Fatalf("%d raises under %d keys, want 3 raises of one incident", len(s.alerts), len(keys))
+	}
+}
