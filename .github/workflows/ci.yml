@@ -27,8 +27,11 @@ jobs:
         run: go test -race -count=1 ./...
       - name: live capture end to end (namespaces, no root)
         run: ./scripts/live-e2e.sh
-      - name: fuzz smoke (10 s per target)
-        run: make fuzz FUZZTIME=10s
+      # Bounded by iterations, not wall time: a duration that expires while
+      # the engine minimizes an input is reported as "context deadline
+      # exceeded" on slow runners (a harness flake, not a finding).
+      - name: fuzz smoke (200k executions per target)
+        run: make fuzz FUZZTIME=200000x
       - name: benchmarks
         run: go test -run '^$' -bench . -benchtime 200ms -benchmem ./internal/... | tee bench.txt
       - uses: actions/upload-artifact@v4
