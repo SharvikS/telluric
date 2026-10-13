@@ -96,8 +96,9 @@ func (h *Hub) raise(now int64, a event.Alert) {
 	default:
 		a.Sev = event.Info
 	}
-	h.sink.Raise(a)
-	h.recent = append(h.recent, scored{now, a.Score, a.Sev})
+	if h.sink.Raise(a) {
+		h.recent = append(h.recent, scored{now, a.Score, a.Sev})
+	}
 }
 
 // who renders "firefox (pid 4242)" or "an unidentified process".

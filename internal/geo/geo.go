@@ -182,3 +182,27 @@ func (l *Locator) Close() {
 		l.asn = nil
 	}
 }
+
+// DBInfo describes an attached database.
+type DBInfo struct {
+	Kind  string // city | asn
+	Type  string // database_type from the metadata
+	Built int64  // Unix ms the database was built
+	Nodes uint
+}
+
+// Info describes the attached databases.
+func (l *Locator) Info() []DBInfo {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	var out []DBInfo
+	for _, d := range []struct {
+		kind string
+		db   *mmdb.DB
+	}{{"city", l.city}, {"asn", l.asn}} {
+		if d.db != nil {
+			out = append(out, DBInfo{Kind: d.kind, Type: d.db.Meta.DatabaseType, Built: int64(d.db.Meta.BuildEpoch) * 1000, Nodes: d.db.Meta.NodeCount})
+		}
+	}
+	return out
+}

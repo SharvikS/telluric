@@ -8,6 +8,8 @@ import (
 	"io"
 	"math"
 	"net/netip"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/SharvikS/telluric/internal/capture"
 	"github.com/SharvikS/telluric/internal/craft"
 	"github.com/SharvikS/telluric/internal/decode"
+	"github.com/SharvikS/telluric/internal/event"
 	"github.com/SharvikS/telluric/internal/geo"
 	"github.com/SharvikS/telluric/internal/wire"
 )
@@ -412,5 +415,98 @@ func TestMLDv2IsNotWireGuard(t *testing.T) {
 	}
 	if classifyPorts(decode.ProtoUDP, 546, 547) != AppDHCP {
 		t.Fatal("DHCPv6 not recognized")
+	}
+}
+
+func TestAlertWorkflowAndPersistentMutes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mutes.json")
+	e := New(Config{Source: &sliceSource{}, Mode: "live", MutesPath: path})
+	a := event.Alert{Key: "beacon:6:203.0.113.66:8443", Kind: "beacon", Sev: event.High, Score: 80, Title: "Beacon"}
+
+	if !e.Raise(a) {
+		t.Fatal("a fresh alert must count towards the threat level")
+	}
+	al := e.alerts[0]
+	if al.State != wire.AlertOpen || al.Count != 1 || al.Muted {
+		t.Fatalf("new alert %+v", al)
+	}
+	e.applyControl(wire.Command{T: "alert.ack", ID: al.ID})
+	e.Raise(a)
+	if al := e.alerts[0]; al.State != wire.AlertAcknowledged || al.Count != 2 {
+		t.Fatalf("recurrence must keep acknowledgement: %+v", al)
+	}
+	e.applyControl(wire.Command{T: "alert.resolve", ID: al.ID})
+	if e.alerts[0].State != wire.AlertResolved {
+		t.Fatal("not resolved")
+	}
+	e.Raise(a)
+	if al := e.alerts[0]; al.State != wire.AlertOpen || al.Count != 3 || al.First != e.alerts[0].First {
+		t.Fatalf("a resolved alert that recurs must reopen: %+v", al)
+	}
+	e.applyControl(wire.Command{T: "alert.mute", ID: al.ID})
+	if e.Raise(a) || !e.alerts[0].Muted {
+		t.Fatal("a muted alert must not count, and must say so")
+	}
+	if len(e.alerts) != 1 {
+		t.Fatalf("recurrences created %d alerts", len(e.alerts))
+	}
+
+	// Mutes survive a restart.
+	e2 := New(Config{Source: &sliceSource{}, Mode: "live", MutesPath: path})
+	if e2.Raise(a) || !e2.alerts[0].Muted {
+		t.Fatal("mute not persisted")
+	}
+	e2.applyControl(wire.Command{T: "alert.unmute", ID: e2.alerts[0].ID})
+	if e2.alerts[0].Muted || !e2.Raise(a) {
+		t.Fatal("unmute failed")
+	}
+	if e3 := New(Config{Source: &sliceSource{}, MutesPath: path}); e3.mutes.has(a.Key) {
+		t.Fatal("unmute not persisted")
+	}
+	// Commands for unknown alerts are ignored.
+	e2.applyControl(wire.Command{T: "alert.ack", ID: 999})
+}
+
+func TestStatusAndMinuteHistory(t *testing.T) {
+	src := &sliceSource{}
+	sources := func() []wire.DataSource {
+		return []wire.DataSource{{Name: "DB-IP Lite City", Kind: "geo", OK: true}, {Name: "Threat intelligence", Kind: "intel", Detail: "no feeds loaded yet"}}
+	}
+	e := New(Config{Source: src, Mode: "live", Sources: sources})
+	rec := &recorder{}
+	e.Subscribe(rec)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	e.Run(ctx)
+
+	var snap wire.Snapshot
+	var status wire.Status
+	for _, raw := range rec.text {
+		var head struct{ T string }
+		json.Unmarshal(raw, &head)
+		switch head.T {
+		case "snapshot":
+			json.Unmarshal(raw, &snap)
+		case "status":
+			json.Unmarshal(raw, &status)
+		}
+	}
+	if snap.Status.Mode != "live" || len(snap.Status.Sources) != 2 || snap.HistoryM == nil {
+		t.Fatalf("snapshot status %+v historyMin=%v", snap.Status, snap.HistoryM)
+	}
+	if status.Version == "" || status.Capture.Source != "test" || status.Uptime < 0 {
+		t.Fatalf("status %+v", status)
+	}
+	if len(status.Warnings) != 1 || !strings.Contains(status.Warnings[0], "no feeds") {
+		t.Fatalf("warnings %v", status.Warnings)
+	}
+
+	var m minuteAcc
+	for i := range 60 {
+		m.add(29_000_000, wire.Stats{TS: 29_000_000*60_000 + int64(i)*1000, RX: float64(i * 100), Flows: i % 7, Apps: map[string]float64{"tls": 10}})
+	}
+	avg := m.average()
+	if avg.RX != 2950 || avg.Flows != 6 || avg.Apps["tls"] != 10 || avg.TS != 29_000_000*60_000 {
+		t.Fatalf("minute average %+v", avg)
 	}
 }

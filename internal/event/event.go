@@ -93,7 +93,9 @@ type Alert struct {
 
 // Sink receives findings.
 type Sink interface {
-	Raise(Alert)
+	// Raise records a finding and reports whether it counts towards the
+	// threat level (a user may have muted it).
+	Raise(Alert) bool
 	// SetDefcon publishes the global threat level, 5 (calm) to 1.
 	SetDefcon(level int)
 }

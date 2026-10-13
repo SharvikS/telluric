@@ -32,6 +32,7 @@ import (
 	"github.com/SharvikS/telluric/internal/procmap"
 	"github.com/SharvikS/telluric/internal/server"
 	"github.com/SharvikS/telluric/internal/synth"
+	"github.com/SharvikS/telluric/internal/wire"
 	"github.com/SharvikS/telluric/internal/ws"
 	"github.com/SharvikS/telluric/web"
 )
@@ -210,6 +211,8 @@ func run(o options) error {
 		Logf:          vlogf,
 		LocalAddrs:    localAddrs,
 		AllInterfaces: o.iface == "" || o.iface == "any",
+		MutesPath:     mutesPath(mode, dataDir),
+		Sources:       func() []wire.DataSource { return dataSources(mode, locator, intelSet) },
 	})
 
 	if mode != "demo" {
@@ -252,6 +255,7 @@ func run(o options) error {
 		UI:        ui,
 		Logf:      vlogf,
 		Subscribe: func(c *ws.Conn) { eng.Subscribe(c) },
+		Command:   eng.Control,
 		Token:     o.token,
 	})
 	url, err := srv.Start()
@@ -278,6 +282,43 @@ func run(o options) error {
 		return nil
 	}
 	return err
+}
+
+func mutesPath(mode, dataDir string) string {
+	if mode == "demo" {
+		return "" // the demo world forgets its mutes
+	}
+	return filepath.Join(dataDir, "mutes.json")
+}
+
+// dataSources reports the databases and feeds behind the engine.
+func dataSources(mode string, loc *geo.Locator, set *intel.Set) []wire.DataSource {
+	if mode == "demo" {
+		return []wire.DataSource{
+			{Name: "Demo world geolocation", Kind: "geo", OK: true, Detail: "built in"},
+			{Name: "Demo threat feed", Kind: "intel", Entries: set.Size(), OK: true, Detail: "built in"},
+		}
+	}
+	var out []wire.DataSource
+	have := map[string]bool{}
+	for _, db := range loc.Info() {
+		have[db.Kind] = true
+		name := "DB-IP Lite City"
+		if db.Kind == "asn" {
+			name = "DB-IP Lite ASN"
+		}
+		out = append(out, wire.DataSource{Name: name, Kind: map[string]string{"city": "geo", "asn": "asn"}[db.Kind], Entries: int(db.Nodes), Updated: db.Built, OK: true, Detail: db.Type})
+	}
+	if !have["city"] {
+		out = append(out, wire.DataSource{Name: "DB-IP Lite City", Kind: "geo", Detail: "not downloaded yet: endpoints can't be placed on the globe"})
+	}
+	for _, f := range set.Info() {
+		out = append(out, wire.DataSource{Name: f.Source, Kind: "intel", Entries: f.Entries, Updated: f.Updated.UnixMilli(), OK: true})
+	}
+	if len(set.Info()) == 0 {
+		out = append(out, wire.DataSource{Name: "Threat intelligence", Kind: "intel", Detail: "no feeds loaded yet"})
+	}
+	return out
 }
 
 func banner(url, mode, source string) {

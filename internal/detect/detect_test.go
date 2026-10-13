@@ -17,8 +17,8 @@ type sink struct {
 	defcon int
 }
 
-func (s *sink) Raise(a event.Alert) { s.alerts = append(s.alerts, a) }
-func (s *sink) SetDefcon(l int)     { s.defcon = l }
+func (s *sink) Raise(a event.Alert) bool { s.alerts = append(s.alerts, a); return true }
+func (s *sink) SetDefcon(l int)          { s.defcon = l }
 
 func (s *sink) kinds() map[string]event.Alert {
 	m := map[string]event.Alert{}

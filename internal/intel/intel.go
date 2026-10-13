@@ -65,6 +65,7 @@ type Set struct {
 	nets6   []netEntry
 	domains map[string]Hit
 	loaded  time.Time
+	feeds   []FeedInfo
 }
 
 type rng4 struct {
@@ -152,6 +153,20 @@ func (s *Set) MatchDomain(name string) (Hit, bool) {
 	return Hit{}, false
 }
 
+// FeedInfo describes one loaded feed.
+type FeedInfo struct {
+	Source  string
+	Entries int
+	Updated time.Time // when the local copy was downloaded
+}
+
+// Info describes the feeds behind the current set.
+func (s *Set) Info() []FeedInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]FeedInfo(nil), s.feeds...)
+}
+
 // Load (re)builds the set from feed files in dir.
 func (s *Set) Load(dir string) error {
 	ips := map[netip.Addr]Hit{}
@@ -159,13 +174,19 @@ func (s *Set) Load(dir string) error {
 	var n6 []netEntry
 	domains := map[string]Hit{}
 	found := 0
+	var infos []FeedInfo
 	for _, f := range feeds {
 		fh, err := os.Open(filepath.Join(dir, f.file))
 		if err != nil {
 			continue
 		}
 		found++
+		info := FeedInfo{Source: f.source}
+		if st, err := fh.Stat(); err == nil {
+			info.Updated = st.ModTime()
+		}
 		f.parse(fh, func(entry, label string) {
+			info.Entries++
 			hit := Hit{Kind: f.kind, Source: f.source}
 			if label != "" {
 				hit.Source = label
@@ -193,6 +214,7 @@ func (s *Set) Load(dir string) error {
 			}
 		})
 		fh.Close()
+		infos = append(infos, info)
 	}
 	if found == 0 {
 		return fmt.Errorf("intel: no feeds in %s", dir)
@@ -223,7 +245,7 @@ func (s *Set) Load(dir string) error {
 			ips[ip] = h
 		}
 	}
-	s.ips, s.ranges4, s.nets6, s.domains, s.loaded = ips, merged, n6, domains, time.Now()
+	s.ips, s.ranges4, s.nets6, s.domains, s.loaded, s.feeds = ips, merged, n6, domains, time.Now(), infos
 	return nil
 }
 

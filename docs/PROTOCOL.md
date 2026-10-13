@@ -82,12 +82,16 @@ immediately.
   "dns":       [DnsEvent, ...],
   "stats":     Stats,
   "history":   [Stats, ...],
-  "traces":    [Trace, ...]
+  "historyMin": [Stats, ...],
+  "traces":    [Trace, ...],
+  "status":    Status
 }
 ```
 
-`history` holds up to 300 one-second `Stats` samples, oldest first, for
-seeding throughput graphs.
+`history` holds up to 900 one-second `Stats` samples (15 minutes) and
+`historyMin` up to 1,440 one-minute averages (24 hours), both oldest first,
+for seeding time-range charts. `status` is the engine's current health
+report (see [`status`](#status--engine-health-2-s)).
 
 ### `ep`, `flow`, `proc` — upserts
 
@@ -141,6 +145,43 @@ with a `gone.traces` entry after a minute and a half of silence.
 ```json
 { "t": "stats", ...Stats }
 ```
+
+### `stats.min` — one-minute average, every minute
+
+```json
+{ "t": "stats.min", ...Stats }
+```
+
+Append to the 24-hour history. `rx`, `tx`, `pps` and `apps` are averages
+over the minute; `flows` is the minute's peak.
+
+### `status` — engine health, ≈0.5 Hz
+
+```json
+{
+  "t": "status",
+  "ts": 1760342400000,
+  "version": "e270dc7",
+  "mode": "live",
+  "started": 1760340000000,
+  "uptime": 2400.5,
+  "capture": { "source": "helper", "received": 912345, "dropped": 0, "pps": 1820 },
+  "engine": { "cpu": 3.2, "heapMB": 41.7, "goroutines": 12, "flows": 143, "endpoints": 61, "procs": 14, "framesPS": 1830 },
+  "sources": [
+    { "name": "DB-IP Lite City", "kind": "geo", "entries": 14297794, "updated": 1759276800000, "ok": true, "detail": "DBIP-City-Lite" },
+    { "name": "abuse.ch ThreatFox", "kind": "intel", "entries": 3672, "updated": 1760341000000, "ok": true }
+  ],
+  "clients": 1,
+  "mutes": 2,
+  "warnings": []
+}
+```
+
+* `engine.cpu`: percent of one core used by the engine since the last report.
+* `sources[].updated`: when the data was built (databases) or downloaded
+  (feeds). `ok: false` comes with a `detail` explaining what is missing.
+* `warnings`: human-readable problems worth surfacing (missing databases,
+  kernel drops).
 
 ### `pong`
 
@@ -298,15 +339,25 @@ runs unprivileged, forwarded traffic).
 {
   "id": 3,
   "ts": 1760342400000,
+  "first": 1760342100000,
+  "count": 24,
   "sev": "high",
   "kind": "beacon",
   "title": "Periodic beaconing to an unfamiliar host",
   "detail": "python3 (pid 9182) → 45.9.20.11:8443 every 30.0 s ±0.4 s, 24 times",
   "ep": 12, "flow": 77, "proc": 5,
   "score": 78,
-  "evidence": { "interval_s": 30.0, "jitter": 0.013, "count": 24 }
+  "evidence": { "interval_s": 30.0, "jitter": 0.013, "count": 24 },
+  "state": "open",
+  "stateTs": 1760342400000,
+  "muted": false
 }
 ```
+
+* `ts` is the latest occurrence and `first` the first; `count` counts
+  occurrences under the same identity.
+* `state`: `open` | `acknowledged` | `resolved`, with `stateTs` the time of
+  the last change. `muted`: see the client commands.
 
 * `sev`: `info` | `low` | `medium` | `high` | `critical`.
 * `kind`: `intel` (threat-intel match), `beacon`, `dga`, `tunnel`, `scan`,
@@ -362,7 +413,22 @@ runs unprivileged, forwarded traffic).
 
 ```json
 { "t": "ping" }
+{ "t": "alert.ack",     "id": 3 }
+{ "t": "alert.resolve", "id": 3 }
+{ "t": "alert.reopen",  "id": 3 }
+{ "t": "alert.mute",    "id": 3 }
+{ "t": "alert.unmute",  "id": 3 }
 ```
+
+The alert commands drive a small incident workflow. The server answers by
+broadcasting the updated alert to every client, so all open tabs agree.
+
+* `ack`: open → acknowledged ("someone is on it").
+* `resolve`: → resolved. If the same condition recurs, the alert reopens and
+  its `count` goes up.
+* `mute`: suppresses this alert. Recurrences still update it silently, but
+  muted alerts no longer raise the threat level or endpoint threat scores.
+  Mutes persist across restarts.
 
 Other messages are reserved; servers ignore unknown types.
 

@@ -24,7 +24,8 @@ func (s *globalStats) appAcc(a App, n uint64) { s.appAccs[a] += n }
 const (
 	volumeStep    = 4 << 20 // report uploads to observers every 4 MiB
 	rateTau       = 2.0     // seconds
-	maxHistory    = 300
+	maxHistory    = 900     // 15 minutes of 1-second samples
+	maxHistoryMin = 1440    // 24 hours of 1-minute averages
 	maxAlertLog   = 200
 	maxSnapshot   = 5000
 	maxDeltaBatch = 1000
@@ -235,11 +236,62 @@ func (e *Engine) statsMsg() wire.Stats {
 
 func (e *Engine) pushHistory() {
 	s := e.statsMsg()
-	s.Apps = nil
 	e.history = append(e.history, s)
 	if len(e.history) > maxHistory {
 		e.history = slices.Clone(e.history[len(e.history)-maxHistory:])
 	}
+	// Fold into the current minute; at the minute boundary publish its
+	// average, so long time ranges stay cheap for every client.
+	m := &e.minute
+	minute := s.TS / 60_000
+	if m.n > 0 && minute != m.minute {
+		avg := m.average()
+		e.historyMin = append(e.historyMin, avg)
+		if len(e.historyMin) > maxHistoryMin {
+			e.historyMin = slices.Clone(e.historyMin[len(e.historyMin)-maxHistoryMin:])
+		}
+		e.broadcast(wire.EncodeStatsMinute(avg), true, false)
+		*m = minuteAcc{}
+	}
+	m.add(minute, s)
+}
+
+// minuteAcc averages one minute of 1-second samples.
+type minuteAcc struct {
+	minute      int64
+	n           int
+	rx, tx, pps float64
+	apps        map[string]float64
+	last        wire.Stats
+	flows       int
+}
+
+func (m *minuteAcc) add(minute int64, s wire.Stats) {
+	if m.n == 0 {
+		m.minute, m.apps = minute, map[string]float64{}
+	}
+	m.n++
+	m.rx += s.RX
+	m.tx += s.TX
+	m.pps += s.PPS
+	for k, v := range s.Apps {
+		m.apps[k] += v
+	}
+	m.flows = max(m.flows, s.Flows)
+	m.last = s
+}
+
+func (m *minuteAcc) average() wire.Stats {
+	n := float64(m.n)
+	out := m.last
+	out.TS = m.minute * 60_000
+	out.RX, out.TX, out.PPS = math.Round(m.rx/n), math.Round(m.tx/n), math.Round(m.pps/n)
+	out.Flows = m.flows // peak concurrent flows in the minute
+	out.Apps = make(map[string]float64, len(m.apps))
+	for k, v := range m.apps {
+		out.Apps[k] = math.Round(v / n)
+	}
+	return out
 }
 
 func (e *Engine) snapshot() wire.Snapshot {
@@ -284,6 +336,12 @@ func (e *Engine) snapshot() wire.Snapshot {
 	for _, t := range e.trace.paths {
 		s.Traces = append(s.Traces, e.wireTrace(t))
 	}
+	s.HistoryM = slices.Clone(e.historyMin)
+	if s.HistoryM == nil {
+		s.HistoryM = []wire.Stats{}
+	}
+	s.Status = e.status()
+	s.Status.T = "status"
 	return s
 }
 
@@ -412,12 +470,14 @@ func (e *Engine) view(fl *flow) *event.Flow {
 }
 
 type alertRef struct {
-	id uint32
-	ts int64
+	id  uint32
+	ts  int64
+	key string
 }
 
-// Raise implements event.Sink.
-func (e *Engine) Raise(a event.Alert) {
+// Raise implements event.Sink. It reports whether the alert counts towards
+// the threat level (muted alerts don't).
+func (e *Engine) Raise(a event.Alert) bool {
 	ep := e.eps[a.Remote]
 	if ep == nil && a.EP != 0 {
 		for _, x := range e.eps {
@@ -427,22 +487,26 @@ func (e *Engine) Raise(a event.Alert) {
 			}
 		}
 	}
+	now := e.now / 1e6
 	w := wire.Alert{
-		TS: e.now / 1e6, Sev: a.Sev.String(), Kind: a.Kind, Title: a.Title, Detail: a.Detail,
-		Flow: a.Flow, Proc: a.Proc, Score: a.Score, Evidence: a.Evidence,
+		TS: now, First: now, Count: 1, Sev: a.Sev.String(), Kind: a.Kind, Title: a.Title, Detail: a.Detail,
+		Flow: a.Flow, Proc: a.Proc, Score: a.Score, Evidence: a.Evidence, State: wire.AlertOpen,
+		Muted: e.mutes.has(a.Key),
 	}
 	if ep != nil {
 		w.EP = ep.id
-		if a.Score > ep.threat {
-			ep.threat = a.Score
-		}
-		if !slices.Contains(ep.tags, a.Kind) {
-			ep.tags = append(ep.tags, a.Kind)
-		}
-		ep.dirty = true
-		for _, fl := range e.flows {
-			if fl.ep == ep && a.Score > fl.threat && (a.Flow == 0 || a.Flow == fl.id) {
-				fl.threat, fl.dirty = a.Score, true
+		if !w.Muted {
+			if a.Score > ep.threat {
+				ep.threat = a.Score
+			}
+			if !slices.Contains(ep.tags, a.Kind) {
+				ep.tags = append(ep.tags, a.Kind)
+			}
+			ep.dirty = true
+			for _, fl := range e.flows {
+				if fl.ep == ep && a.Score > fl.threat && (a.Flow == 0 || a.Flow == fl.id) {
+					fl.threat, fl.dirty = a.Score, true
+				}
 			}
 		}
 	}
@@ -450,13 +514,19 @@ func (e *Engine) Raise(a event.Alert) {
 		e.alertKeys = map[string]alertRef{}
 	}
 	if ref, ok := e.alertKeys[a.Key]; ok && a.Key != "" {
-		w.ID = ref.id
-		for i := range e.alerts {
-			if e.alerts[i].ID == ref.id {
-				e.alerts[i] = w
+		// A recurrence: keep the identity, history and workflow state.
+		if i := e.alertIndex(ref.id); i >= 0 {
+			prev := e.alerts[i]
+			w.ID, w.First, w.Count = prev.ID, prev.First, prev.Count+1
+			w.State, w.StateTS = prev.State, prev.StateTS
+			if prev.State == wire.AlertResolved {
+				w.State, w.StateTS = wire.AlertOpen, now // it came back
 			}
+			e.alerts[i] = w
+		} else {
+			w.ID = ref.id
 		}
-		e.alertKeys[a.Key] = alertRef{id: ref.id, ts: e.now}
+		e.alertKeys[a.Key] = alertRef{id: w.ID, ts: e.now, key: a.Key}
 	} else {
 		e.nextAlert++
 		w.ID = e.nextAlert
@@ -465,10 +535,20 @@ func (e *Engine) Raise(a event.Alert) {
 			e.alerts = slices.Clone(e.alerts[len(e.alerts)-maxAlertLog:])
 		}
 		if a.Key != "" {
-			e.alertKeys[a.Key] = alertRef{id: w.ID, ts: e.now}
+			e.alertKeys[a.Key] = alertRef{id: w.ID, ts: e.now, key: a.Key}
 		}
 	}
 	e.alertQ = append(e.alertQ, w)
+	return !w.Muted
+}
+
+func (e *Engine) alertIndex(id uint32) int {
+	for i := len(e.alerts) - 1; i >= 0; i-- {
+		if e.alerts[i].ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 // SetDefcon implements event.Sink.

@@ -63,6 +63,11 @@ type Config struct {
 	// bridges and veth pairs are then skipped, since they carry the same
 	// traffic as the uplink. An explicitly chosen interface is never skipped.
 	AllInterfaces bool
+	// MutesPath persists muted alert keys across restarts ("" = memory only).
+	MutesPath string
+	// Sources reports the state of the databases and feeds in use, for the
+	// status message.
+	Sources func() []wire.DataSource
 }
 
 // Engine is the event loop. Create it with New and start it with Run.
@@ -87,16 +92,25 @@ type Engine struct {
 	local   localAddrs
 	ifnames map[int32]string
 
-	shots   shotBatch
-	trace   tracer
-	pdns    passiveDNS
-	dnsOut  []wire.DNSEvent
-	dnsLog  []wire.DNSEvent // recent events for snapshots
-	alerts  []wire.Alert    // recent alerts for snapshots
-	alertQ  []wire.Alert    // pending broadcast
-	gone    wire.Gone
-	stats   globalStats
-	history []wire.Stats
+	shots      shotBatch
+	trace      tracer
+	pdns       passiveDNS
+	dnsOut     []wire.DNSEvent
+	dnsLog     []wire.DNSEvent // recent events for snapshots
+	alerts     []wire.Alert    // recent alerts for snapshots
+	alertQ     []wire.Alert    // pending broadcast
+	gone       wire.Gone
+	stats      globalStats
+	history    []wire.Stats
+	historyMin []wire.Stats
+	minute     minuteAcc
+
+	controlCh  chan wire.Command
+	mutes      *muteStore
+	sampler    statusSampler
+	started    time.Time
+	lastStatus int64
+	lastDrops  uint64
 
 	procPending bool
 	procWanted  bool             // a new flow awaits attribution
@@ -136,6 +150,9 @@ func New(cfg Config) *Engine {
 		ifnames:   map[int32]string{},
 		pdns:      newPassiveDNS(),
 		trace:     newTracer(),
+		controlCh: make(chan wire.Command, 64),
+		mutes:     newMuteStore(cfg.MutesPath),
+		started:   time.Now(),
 	}
 	e.shots.reset()
 	if cfg.Observer != nil {
@@ -171,12 +188,13 @@ func (e *Engine) GeoUpdated() {
 func (e *Engine) Frames() uint64 { return e.frames.Load() }
 
 const (
-	shotEvery  = 50 * time.Millisecond
-	deltaEvery = 250 * time.Millisecond
-	statsEvery = 250 * time.Millisecond
-	rateEvery  = 500 * time.Millisecond
-	sweepEvery = time.Second
-	localEvery = 5 * time.Second
+	shotEvery   = 50 * time.Millisecond
+	deltaEvery  = 250 * time.Millisecond
+	statsEvery  = 250 * time.Millisecond
+	rateEvery   = 500 * time.Millisecond
+	sweepEvery  = time.Second
+	localEvery  = 5 * time.Second
+	statusEvery = 2 * time.Second
 )
 
 // Run processes frames until ctx is done or the source fails. When a finite
@@ -260,6 +278,10 @@ func (e *Engine) tick(wall int64) {
 		e.lastSec = e.now
 		e.pushHistory()
 	}
+	if e.now-e.lastStatus >= int64(statusEvery) {
+		e.lastStatus = e.now
+		e.broadcast(wire.EncodeStatus(e.status()), true, false)
+	}
 	if e.now-e.lastLocal >= int64(localEvery) {
 		e.refreshLocal(e.now)
 		e.refreshIfnames()
@@ -277,6 +299,8 @@ func (e *Engine) drainAsync() {
 			e.broadcast(wire.EncodeHome(e.wireHome()), true, false)
 		case <-e.geoReady:
 			e.relocateAll()
+		case c := <-e.controlCh:
+			e.applyControl(c)
 		default:
 			if e.cfg.Procs != nil {
 				select {

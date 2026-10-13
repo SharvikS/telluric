@@ -33,6 +33,8 @@ type Config struct {
 	Logf   func(string, ...any)
 	// Subscribe hands a new client to the engine.
 	Subscribe func(c *ws.Conn)
+	// Command forwards an authenticated client's request (alert workflow).
+	Command func(wire.Command)
 	// Token is the session secret; empty means a random one.
 	Token string
 }
@@ -211,11 +213,15 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			if op != ws.OpText {
 				continue
 			}
-			var m struct {
-				T string `json:"t"`
+			var m wire.Command
+			if json.Unmarshal(msg, &m) != nil {
+				continue
 			}
-			if json.Unmarshal(msg, &m) == nil && m.T == "ping" {
+			switch {
+			case m.T == "ping":
 				conn.Send(wire.Pong, true, false)
+			case strings.HasPrefix(m.T, "alert.") && s.cfg.Command != nil:
+				s.cfg.Command(m)
 			}
 		}
 	}()

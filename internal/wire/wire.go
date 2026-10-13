@@ -125,7 +125,9 @@ type DNSEvent struct {
 // Alert is a detector finding.
 type Alert struct {
 	ID       uint32         `json:"id"`
-	TS       int64          `json:"ts"`
+	TS       int64          `json:"ts"`    // last occurrence
+	First    int64          `json:"first"` // first occurrence
+	Count    int            `json:"count"` // occurrences (updates under the same key)
 	Sev      string         `json:"sev"`
 	Kind     string         `json:"kind"`
 	Title    string         `json:"title"`
@@ -135,6 +137,61 @@ type Alert struct {
 	Proc     uint32         `json:"proc"`
 	Score    int            `json:"score"`
 	Evidence map[string]any `json:"evidence,omitempty"`
+	State    string         `json:"state"` // open | acknowledged | resolved
+	StateTS  int64          `json:"stateTs,omitempty"`
+	Muted    bool           `json:"muted"`
+}
+
+// Alert states.
+const (
+	AlertOpen         = "open"
+	AlertAcknowledged = "acknowledged"
+	AlertResolved     = "resolved"
+)
+
+// Status describes the engine's health and data sources.
+type Status struct {
+	T        string        `json:"t"`
+	TS       int64         `json:"ts"`
+	Version  string        `json:"version"`
+	Mode     string        `json:"mode"`
+	Started  int64         `json:"started"`
+	Uptime   float64       `json:"uptime"` // seconds
+	Capture  CaptureStatus `json:"capture"`
+	Engine   EngineStatus  `json:"engine"`
+	Sources  []DataSource  `json:"sources"`
+	Clients  int           `json:"clients"`
+	Mutes    int           `json:"mutes"`
+	Warnings []string      `json:"warnings,omitempty"`
+}
+
+// CaptureStatus describes the packet source.
+type CaptureStatus struct {
+	Source   string  `json:"source"`
+	Received uint64  `json:"received"`
+	Dropped  uint64  `json:"dropped"`
+	PPS      float64 `json:"pps"`
+}
+
+// EngineStatus describes the engine process.
+type EngineStatus struct {
+	CPU        float64 `json:"cpu"`    // percent of one core
+	HeapMB     float64 `json:"heapMB"` // live heap
+	Goroutines int     `json:"goroutines"`
+	Flows      int     `json:"flows"`
+	Endpoints  int     `json:"endpoints"`
+	Procs      int     `json:"procs"`
+	FramesPS   float64 `json:"framesPS"`
+}
+
+// DataSource describes a database or feed the engine relies on.
+type DataSource struct {
+	Name    string `json:"name"`
+	Kind    string `json:"kind"` // geo | asn | intel
+	Entries int    `json:"entries,omitempty"`
+	Updated int64  `json:"updated,omitempty"` // Unix ms of the data's build or download
+	OK      bool   `json:"ok"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 // Totals are cumulative counters.
@@ -169,8 +226,10 @@ type Snapshot struct {
 	Alerts    []Alert    `json:"alerts"`
 	DNS       []DNSEvent `json:"dns"`
 	Stats     Stats      `json:"stats"`
-	History   []Stats    `json:"history"`
+	History   []Stats    `json:"history"`    // 1-second samples, up to 15 minutes, oldest first
+	HistoryM  []Stats    `json:"historyMin"` // 1-minute averages, up to 24 hours, oldest first
 	Traces    []Trace    `json:"traces"`
+	Status    Status     `json:"status"`
 }
 
 // Gone lists expired entities.
@@ -256,6 +315,18 @@ func EncodeAlerts(v []Alert) []byte { return mustJSON(items[Alert]{"alert", v}) 
 
 // EncodeTraces encodes a traced-path frame.
 func EncodeTraces(v []Trace) []byte { return mustJSON(items[Trace]{"trace", v}) }
+
+// EncodeStatus encodes a status frame.
+func EncodeStatus(s Status) []byte { s.T = "status"; return mustJSON(s) }
+
+// EncodeStatsMinute encodes a 1-minute history sample frame.
+func EncodeStatsMinute(s Stats) []byte { return mustJSON(statsMsg{"stats.min", s}) }
+
+// Command is a client → server request.
+type Command struct {
+	T  string `json:"t"`  // ping | alert.ack | alert.resolve | alert.reopen | alert.mute | alert.unmute
+	ID uint32 `json:"id"` // alert id for alert.* commands
+}
 
 // EncodeGone encodes an expiry frame.
 func EncodeGone(g Gone) []byte { g.T = "gone"; return mustJSON(g) }
