@@ -169,6 +169,7 @@ type proc struct {
 // payload sniffers refine the guess.
 var wellKnownPorts = map[uint16]App{
 	53: AppDNS, 853: AppDoT, 5353: AppMDNS, 5355: AppDNS, 1900: AppSSDP, 67: AppDHCP, 68: AppDHCP, 123: AppNTP,
+	546: AppDHCP, 547: AppDHCP, // DHCPv6
 	22: AppSSH, 21: AppFTP, 23: AppTelnet, 25: AppSMTP, 465: AppSMTP, 587: AppSMTP,
 	143: AppIMAP, 993: AppIMAP, 110: AppPOP3, 995: AppPOP3, 3389: AppRDP,
 	51820: AppWireGuard, 1194: AppOpenVPN, 3478: AppSTUN, 19302: AppSTUN,
@@ -215,6 +216,12 @@ func classifyPayload(proto uint8, b []byte) App {
 		if _, ok := decode.ParseHTTPRequest(b); ok {
 			return AppHTTP
 		}
+		return AppUnknown
+	}
+	if proto != decode.ProtoUDP {
+		// ICMP and others carry no application payload. (An IPv6 MLDv2
+		// report — record type 4, zero padding, 16-byte addresses — even
+		// looks exactly like a WireGuard data message.)
 		return AppUnknown
 	}
 	switch {

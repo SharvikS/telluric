@@ -100,6 +100,8 @@ func capture2(fd int, opt capture.RingOptions) {
 	if err := ensureUnprivileged(); err != nil {
 		fatal(err)
 	}
+	// Exec'ing /proc/self/exe names the process "exe"; restore ours.
+	_ = os.WriteFile("/proc/self/comm", []byte("telluric-capture"), 0)
 	ring, err := capture.AdoptRing(fd, opt, "ring:"+opt.Interface)
 	if err != nil {
 		fatal(err)

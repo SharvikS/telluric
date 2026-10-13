@@ -52,6 +52,7 @@ type options struct {
 	uiDir     string
 	noProcs   bool
 	noDetect  bool
+	token     string
 	verbose   bool
 	version   bool
 }
@@ -73,6 +74,7 @@ func main() {
 	flag.StringVar(&o.uiDir, "ui-dir", "", "serve the UI from this `directory` instead of the embedded copy (development)")
 	flag.BoolVar(&o.noProcs, "no-procs", false, "don't attribute traffic to processes")
 	flag.BoolVar(&o.noDetect, "no-detect", false, "disable threat detection and feed downloads")
+	flag.StringVar(&o.token, "token", "", "session `token` for the UI (default: random each run); reuse one to keep browser tabs across restarts")
 	flag.BoolVar(&o.verbose, "v", false, "verbose logging")
 	flag.BoolVar(&o.version, "version", false, "print the version and exit")
 	flag.Usage = func() {
@@ -250,6 +252,7 @@ func run(o options) error {
 		UI:        ui,
 		Logf:      vlogf,
 		Subscribe: func(c *ws.Conn) { eng.Subscribe(c) },
+		Token:     o.token,
 	})
 	url, err := srv.Start()
 	if err != nil {

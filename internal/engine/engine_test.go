@@ -398,3 +398,19 @@ func TestRealNgtcp2Initial(t *testing.T) {
 		t.Fatalf("flow %+v", quic)
 	}
 }
+
+func TestMLDv2IsNotWireGuard(t *testing.T) {
+	// An MLDv2 report as seen on a real network: four records of type 4
+	// (CHANGE_TO_EXCLUDE), each 4 header bytes + a 16-byte group address.
+	var records []byte
+	for range 4 {
+		records = append(records, 4, 0, 0, 0)
+		records = append(records, 0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xfb)
+	}
+	if classifyPayload(decode.ProtoICMPv6, records) != AppUnknown {
+		t.Fatal("ICMPv6 payload classified as an application")
+	}
+	if classifyPorts(decode.ProtoUDP, 546, 547) != AppDHCP {
+		t.Fatal("DHCPv6 not recognized")
+	}
+}
