@@ -52,13 +52,19 @@ void main() {
   vec3 A = normalize(iA.xyz), B = normalize(iB.xyz);
   float theta = acos(clamp(dot(A, B), -1.0, 1.0));
   // A long arc whose plane contains the line of sight projects to a straight
-  // streak off the limb; fade those (selected/route arcs excepted).
+  // streak — but only where it rises off the limb into empty space does it
+  // read as a laser. Fade just that part: a vertex sits against space when
+  // the line of sight through it misses the globe. (With home centred, every
+  // arc leaving home is "edge-on"; the part drawn over the globe must stay.)
   vec3 pn = cross(A, B);
   float pl = length(pn);
   vec3 mid = normalize(A + B + vec3(1e-4));
   float side = pl > 1e-4 ? abs(dot(pn / pl, normalize(uEye - mid))) : 1.0;
   float longK = smoothstep(0.55, 1.3, theta) * (hl > 0.5 ? 0.0 : 1.0) * (1.0 - uCinema);
-  float onEdge = longK * (1.0 - smoothstep(0.04, 0.34, side));
+  vec3 ray = p - uEye;
+  float tc0 = max(-dot(uEye, ray) / max(dot(ray, ray), 1e-6), 0.0);
+  float inSpace = smoothstep(0.985, 1.04, length(uEye + tc0 * ray));
+  float onEdge = longK * (1.0 - smoothstep(0.04, 0.34, side)) * inSpace;
   float w = uWidth * (0.7 + 0.55 * iC.w + 0.4 * iE.y) * (hl > 0.5 ? 1.35 : 1.0) * (1.0 + iD.z * 0.6) * (1.0 - 0.35 * onEdge);
   c.xy += nrm * aCorner.y * (w * 2.0 / uViewport) * c.w;
   gl_Position = c;
