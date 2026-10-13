@@ -323,7 +323,7 @@ func wireFlow(fl *flow) wire.Flow {
 		w.Proc = fl.proc.id
 	}
 	if fl.rtt > 0 {
-		w.RTT = wire.Float(round(fl.rtt, 2))
+		w.RTT = wire.Float(round(fl.rtt, 3)) // µs precision: LAN handshakes take microseconds
 	}
 	return w
 }

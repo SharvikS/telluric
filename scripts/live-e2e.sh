@@ -19,6 +19,9 @@ for tool in unshare nsenter ip openssl curl python3 node getent; do
 done
 unshare -Urn true 2>/dev/null || { echo "skip: unprivileged user namespaces unavailable"; exit 0; }
 curl --version | grep -q HTTP3 || export NO_HTTP3=1
+# OpenSSL offers the X25519MLKEM768 post-quantum key share by default from 3.5.
+ossl=$(openssl version | awk '{print $2}')
+[ "$(printf '%s\n3.5\n' "${ossl%%[!0-9.]*}" | sort -V | head -1)" = "3.5" ] || export NO_PQ=1
 make -C "$ROOT" -s engine
 
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -days 1 -nodes \

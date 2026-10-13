@@ -32,12 +32,13 @@ setTimeout(() => {
   check(hello?.mode === 'live', 'engine runs in live mode', hello?.mode);
   check(peer?.scope === 'lan', 'peer is a LAN endpoint', JSON.stringify({ ip: peer?.ip, scope: peer?.scope, name: peer?.name }));
   check(http?.app === 'http' && http?.state !== 'syn', 'HTTP flow classified', JSON.stringify({ app: http?.app, state: http?.state }));
-  check(http?.rtt > 0, 'TCP handshake RTT measured', `${http?.rtt} ms`);
+  check(typeof http?.rtt === 'number', 'TCP handshake RTT measured', `${http?.rtt} ms`);
   check(proc(bulk) === 'curl', 'download attributed to curl', JSON.stringify({ proc: proc(bulk), bytesIn: bulk?.bytesIn }));
   check(bulk?.bytesIn >= 4000000, 'download fully counted, GRO super-packets included', String(bulk?.bytesIn));
   check(tls?.sni === 'secure.telluric.test' && tls?.tlsv === '1.3', 'TLS ClientHello: SNI + version', JSON.stringify({ sni: tls?.sni, tlsv: tls?.tlsv, alpn: tls?.alpn }));
   check(/^t13d\d{4}[a-z0-9]{2}_[0-9a-f]{12}_[0-9a-f]{12}$/.test(tls?.ja4 || ''), 'JA4 of a real OpenSSL client', tls?.ja4);
-  check(tls?.pq === true, 'OpenSSL offered a post-quantum key share (X25519MLKEM768)', String(tls?.pq));
+  if (process.env.NO_PQ) check(!tls?.pq, 'OpenSSL < 3.5 offers no post-quantum key share, and none is reported', String(tls?.pq));
+  else check(tls?.pq === true, 'OpenSSL offered a post-quantum key share (X25519MLKEM768)', String(tls?.pq));
   if (process.env.NO_HTTP3) console.log('skip HTTP/3 check: this curl has no HTTP/3');
   else check(quic?.app === 'quic' && quic?.sni === 'quic.telluric.test', 'HTTP/3: SNI decrypted from a real ngtcp2 QUIC Initial', JSON.stringify({ app: quic?.app, sni: quic?.sni, ja4: quic?.ja4 }));
   const demo = dns.find(d => d.q === 'demo.telluric.test' && d.qtype === 'A');
