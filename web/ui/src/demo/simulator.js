@@ -191,6 +191,7 @@ export class DemoSimulator {
       tlsv: tls ? (opts.tlsv || '1.3') : null,
       ja4: tls ? (opts.ja4 || (app === 'quic' ? JA4.firefoxQuic : JA4.firefox)) : null,
       ech: tls ? ech : null,
+      pq: tls ? (opts.tlsv || '1.3') === '1.3' && ![JA4.python, JA4.go, JA4.legacy, JA4.steam].includes(opts.ja4) : null,
       bytesIn: 0, bytesOut: 0, pktsIn: 0, pktsOut: 0, rateIn: 0, rateOut: 0,
       rtt: proto === 'tcp' ? this.rttTo(c) : null,
       start: now, last: now, threat: opts.threat || 0,

@@ -80,8 +80,8 @@ void main() {
   float pulse = vParams.z > 0.0 ? 0.65 + 0.35 * sin(uTime * 7.0) : 1.0;
   float a = vColor.a;
   float body = soft * 0.32 + core * 0.95;
-  vec3 col = vColor.rgb * a * body * mix(0.55, 1.25, dash) * ends * pulse * 0.62;
-  col += vColor.rgb * vFlash * core * 0.9 * ends;
+  vec3 col = vColor.rgb * a * body * mix(0.55, 1.25, dash) * ends * pulse * 0.56;
+  col += vColor.rgb * vFlash * core * 0.5 * ends;
   outColor = vec4(col, 1.0);
 }`;
 
