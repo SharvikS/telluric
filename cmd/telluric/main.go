@@ -24,9 +24,11 @@ import (
 
 	"github.com/SharvikS/telluric/internal/buildinfo"
 	"github.com/SharvikS/telluric/internal/capture"
+	"github.com/SharvikS/telluric/internal/detect"
 	"github.com/SharvikS/telluric/internal/engine"
 	"github.com/SharvikS/telluric/internal/event"
 	"github.com/SharvikS/telluric/internal/geo"
+	"github.com/SharvikS/telluric/internal/intel"
 	"github.com/SharvikS/telluric/internal/procmap"
 	"github.com/SharvikS/telluric/internal/server"
 	"github.com/SharvikS/telluric/internal/synth"
@@ -49,6 +51,7 @@ type options struct {
 	open      bool
 	uiDir     string
 	noProcs   bool
+	noDetect  bool
 	verbose   bool
 	version   bool
 }
@@ -69,6 +72,7 @@ func main() {
 	flag.BoolVar(&o.open, "open", false, "open the UI in the default browser")
 	flag.StringVar(&o.uiDir, "ui-dir", "", "serve the UI from this `directory` instead of the embedded copy (development)")
 	flag.BoolVar(&o.noProcs, "no-procs", false, "don't attribute traffic to processes")
+	flag.BoolVar(&o.noDetect, "no-detect", false, "disable threat detection and feed downloads")
 	flag.BoolVar(&o.verbose, "v", false, "verbose logging")
 	flag.BoolVar(&o.version, "version", false, "print the version and exit")
 	flag.Usage = func() {
@@ -146,7 +150,20 @@ func run(o options) error {
 		defer locator.Close()
 	}
 
-	var observer event.Observer // detectors arrive in the next commit
+	// Detection: threat-intel feeds plus the behavioural detectors.
+	intelSet := intel.NewSet()
+	intelDir := filepath.Join(dataDir, "intel")
+	if mode == "demo" {
+		for ip, src := range synth.IntelIPs() {
+			intelSet.AddIP(ip, intel.Hit{Kind: intel.KindC2, Source: src})
+		}
+	} else if err := intelSet.Load(intelDir); err == nil {
+		vlogf("threat intel: %d entries", intelSet.Size())
+	}
+	var observer event.Observer
+	if !o.noDetect {
+		observer = detect.New(intelSet)
+	}
 	var localAddrs func() []netip.Addr
 	if mode == "live" {
 		localAddrs = engine.InterfaceAddrs
@@ -180,6 +197,14 @@ func run(o options) error {
 			h := geo.Resolve(ctx, o.home, !o.noSTUN, locator)
 			vlogf("home: %+v", h)
 			eng.SetHome(h)
+			if !o.noUpdate && !o.noDetect && intel.Stale(intelDir, 6*time.Hour) {
+				if err := intel.Update(ctx, intelDir); err != nil {
+					logf("threat feed update failed: %v", err)
+				} else if err := intelSet.Load(intelDir); err == nil {
+					logf("threat intel: %d indicators loaded", intelSet.Size())
+					chownToSudoUser(intelDir)
+				}
+			}
 		}()
 	} else if o.home != "" {
 		if lat, lon, err := geo.ParseLatLon(o.home); err == nil {
@@ -249,7 +274,7 @@ func hostname(mode string) string {
 func credits(mode string) []string {
 	c := []string{"Map data: Natural Earth (public domain)"}
 	if mode != "demo" {
-		c = append(c, geo.Credit)
+		c = append(c, geo.Credit, intel.Credit())
 	}
 	return c
 }

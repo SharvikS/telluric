@@ -105,12 +105,13 @@ type flow struct {
 	httpHost string
 	payloads int // client payload segments inspected for classification
 
-	threat    int
-	dirty     bool
-	procTries uint8
-	procNext  int64 // ns: earliest next attribution attempt
-	shotIdx   [2]int32
-	shotCnt   [2]uint8
+	threat      int
+	volReported uint64 // bytesOut at the last Volume report
+	dirty       bool
+	procTries   uint8
+	procNext    int64 // ns: earliest next attribution attempt
+	shotIdx     [2]int32
+	shotCnt     [2]uint8
 }
 
 func (f *flow) isTCP() bool { return f.key.proto == decode.ProtoTCP }

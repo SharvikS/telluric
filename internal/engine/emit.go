@@ -22,7 +22,8 @@ type globalStats struct {
 func (s *globalStats) appAcc(a App, n uint64) { s.appAccs[a] += n }
 
 const (
-	rateTau       = 2.0 // seconds
+	volumeStep    = 4 << 20 // report uploads to observers every 4 MiB
+	rateTau       = 2.0     // seconds
 	maxHistory    = 300
 	maxAlertLog   = 200
 	maxSnapshot   = 5000
@@ -59,6 +60,10 @@ func (e *Engine) updateRates() {
 		b := ewma(&fl.rateOut, &fl.accOut, dt, alpha)
 		if a || b {
 			fl.dirty = true
+		}
+		if e.cfg.Observer != nil && fl.bytesOut-fl.volReported >= volumeStep {
+			fl.volReported = fl.bytesOut
+			e.cfg.Observer.Volume(e.now, e.view(fl))
 		}
 	}
 	for _, ep := range e.eps {
@@ -391,7 +396,7 @@ func (e *Engine) view(fl *flow) *event.Flow {
 	*v = event.Flow{
 		ID: fl.id, EP: fl.ep.id, Proto: fl.key.proto, Local: fl.key.local, Remote: fl.key.remote,
 		Out: fl.out, App: fl.app.String(), State: tcpStateNames[fl.state], SNI: fl.sni, HTTPHost: fl.httpHost,
-		JA4: fl.ja4, Name: fl.ep.name, Scope: fl.ep.scope, Located: fl.ep.located, CC: fl.ep.loc.CC,
+		JA4: fl.ja4, Name: fl.ep.name, Svc: fl.ep.svc, Scope: fl.ep.scope, Located: fl.ep.located, CC: fl.ep.loc.CC,
 		Org: fl.ep.loc.Org, ASN: fl.ep.loc.ASN, First: fl.first, Last: fl.last,
 		BytesIn: fl.bytesIn, BytesOut: fl.bytesOut, PktsIn: fl.pktsIn, PktsOut: fl.pktsOut, RTT: fl.rtt,
 	}

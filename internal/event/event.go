@@ -28,6 +28,7 @@ type Flow struct {
 	HTTPHost string
 	JA4      string
 	Name     string // the endpoint's best name
+	Svc      string // well-known service of the endpoint, "" if none
 	Scope    string // public | lan | local | multicast
 	Located  bool
 	CC       string
@@ -109,6 +110,8 @@ type Observer interface {
 	ARP(now int64, a *decode.ARP, f *capture.Frame)
 	Cleartext(now int64, f *Flow, what string)
 	Miner(now int64, f *Flow)
+	// Volume reports a flow whose upload grew by another few megabytes.
+	Volume(now int64, f *Flow)
 	// Tick runs once a second; detectors evaluate windows and raise alerts.
 	Tick(now int64)
 }
