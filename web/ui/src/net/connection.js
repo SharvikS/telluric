@@ -60,7 +60,32 @@ export class Connection extends Emitter {
       this.startDemo('demo mode');
       return;
     }
-    this.connect();
+    this.probe().then((ok) => {
+      if (ok) this.connect();
+      else this.fallbackDemo();
+    });
+  }
+
+  /**
+   * Is an engine serving this page? `GET healthz` answers "ok" on the engine
+   * and 404s silently on a static host, whereas a failed WebSocket handshake
+   * is logged as a console error, so we never open a socket blind.
+   */
+  async probe() {
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 2500);
+      const r = await fetch(new URL('healthz', location.href), { cache: 'no-store', signal: ctl.signal });
+      clearTimeout(timer);
+      return r.ok && (await r.text()).trim() === 'ok';
+    } catch {
+      return false;
+    }
+  }
+
+  fallbackDemo() {
+    if (!this.demo) this.startDemo('no engine found — running the built-in demo');
+    this.scheduleProbe();
   }
 
   wsUrl() {
@@ -71,11 +96,11 @@ export class Connection extends Emitter {
   }
 
   connect() {
-    this.setState(this.attempts ? 'reconnecting' : 'connecting');
+    if (!this.demo) this.setState(this.attempts ? 'reconnecting' : 'connecting');
     let ws;
     try {
       ws = new WebSocket(this.wsUrl());
-    } catch (e) {
+    } catch {
       this.onFail();
       return;
     }
@@ -88,25 +113,32 @@ export class Connection extends Emitter {
       this.ws = null;
       clearInterval(this.pingTimer);
       if (this.gotHello) {
-        // We had a session: keep the world on screen and reconnect.
-        this.attempts = 1;
+        // We had a session: keep the world on screen, wait for the engine.
         this.setState('reconnecting', 'engine connection lost');
-        setTimeout(() => this.connect(), 800);
+        this.awaitEngine(800);
       } else {
         this.onFail();
       }
     };
   }
 
+  /** Poll healthz (silently) until the engine is back, then reconnect. */
+  awaitEngine(delay) {
+    setTimeout(async () => {
+      if (this.ws) return;
+      if (await this.probe()) this.connect();
+      else this.awaitEngine(Math.min(5000, delay * 1.6));
+    }, delay);
+  }
+
   onFail() {
     this.attempts++;
-    if (this.attempts >= 2 && !this.demo) {
-      this.startDemo('no engine found — running the built-in demo');
-      this.scheduleProbe();
+    if (this.demo) return; // already in fallback; scheduleProbe keeps looking
+    if (this.attempts >= 2) {
+      this.fallbackDemo();
       return;
     }
-    const delay = Math.min(10000, 400 * 2 ** this.attempts);
-    setTimeout(() => this.connect(), delay);
+    this.awaitEngine(Math.min(10000, 400 * 2 ** this.attempts));
   }
 
   onMessage(data) {
@@ -185,30 +217,13 @@ export class Connection extends Emitter {
     return { lat: 50.1109, lon: 8.6821, city: 'Frankfurt am Main', cc: 'DE' };
   }
 
-  /** In fallback demo mode, look for an engine every 10 s. */
+  /** In fallback demo mode, look for an engine every 10 s (silently). */
   scheduleProbe() {
     if (this.params.has('demo')) return;
     clearInterval(this.probeTimer);
-    this.probeTimer = setInterval(() => {
+    this.probeTimer = setInterval(async () => {
       if (!this.demo || this.ws) return;
-      const ws = new WebSocket(this.wsUrl());
-      ws.binaryType = 'arraybuffer';
-      const kill = setTimeout(() => ws.close(), 4000);
-      ws.onmessage = (ev) => {
-        clearTimeout(kill);
-        if (typeof ev.data === 'string' && ev.data.includes('"hello"')) {
-          this.ws = ws;
-          ws.onmessage = (e2) => this.onMessage(e2.data);
-          ws.onclose = () => {
-            if (this.ws !== ws) return;
-            this.ws = null;
-            this.setState('reconnecting', 'engine connection lost');
-            setTimeout(() => this.connect(), 800);
-          };
-          this.onMessage(ev.data);
-        }
-      };
-      ws.onerror = () => clearTimeout(kill);
+      if (await this.probe()) this.connect();
     }, 10000);
   }
 }

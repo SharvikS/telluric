@@ -195,6 +195,28 @@ export class Arcs {
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, d, 0, n * STRIDE);
   }
 
+  /**
+   * Upload explicit instances instead of endpoint arcs. Each item:
+   * { a, b, lift, color, intensity, birth, death, dirBias, highlight, flash, seed }.
+   */
+  setInstances(list) {
+    this.ensure(list.length);
+    const d = this.data;
+    list.forEach((s, n) => {
+      const o = n * STRIDE;
+      d[o] = s.a[0]; d[o + 1] = s.a[1]; d[o + 2] = s.a[2]; d[o + 3] = s.lift;
+      d[o + 4] = s.b[0]; d[o + 5] = s.b[1]; d[o + 6] = s.b[2]; d[o + 7] = s.seed || 0;
+      d[o + 8] = s.color[0]; d[o + 9] = s.color[1]; d[o + 10] = s.color[2]; d[o + 11] = s.intensity;
+      d[o + 12] = s.birth; d[o + 13] = s.death || 0; d[o + 14] = 0; d[o + 15] = s.dirBias || 0;
+      d[o + 16] = s.highlight || 0; d[o + 17] = s.flash || 0; d[o + 18] = 0; d[o + 19] = 0;
+    });
+    this.count = list.length;
+    if (!list.length) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.ibuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, d, 0, list.length * STRIDE);
+  }
+
   draw(frame) {
     if (!this.count || !frame.hasHome) return;
     const gl = this.gl;

@@ -150,6 +150,27 @@ store.on('reset', () => {
   hud.detail.close();
 });
 
+// Traceroute completes: announce it and, if the user is just watching, frame the route.
+const tracedDone = new Set();
+store.on('trace', (tr) => {
+  if (!tr.done || tracedDone.has(tr.id)) return;
+  tracedDone.add(tr.id);
+  const last = tr.hops[tr.hops.length - 1];
+  const n = last ? last.n : tr.hops.length;
+  hud.toast(`<span style="color:#ffc461;font-weight:800;letter-spacing:.14em">TRACEROUTE</span> · ${esc(tr.name || tr.dst)} · ${n} hops${last && last.rtt != null ? ` · ${Math.round(last.rtt)} ms` : ''}`, 6000);
+  const idle = performance.now() - fx.lastInput > 12000;
+  if (idle || fx.cinematic) {
+    setTimeout(() => {
+      const g = world.traces.frameOf(tr.id);
+      if (!g) return;
+      const [c, span] = g;
+      const [lat, lon] = vec3ToLatLon(c);
+      fx.cineAt = performance.now();
+      camera.flyTo(lat - 6, lon, clamp(2.1 + span * 2.4, 2.2, 5.6), 2.0);
+    }, 600);
+  }
+});
+
 // ── camera framing ──────────────────────────────────────────────────────────
 function fitDistance() {
   const r = hud.globeRect();
@@ -261,6 +282,7 @@ window.addEventListener('keydown', (e) => {
       break;
     case 'r': case 'R':
       renderer.post.crt = !renderer.post.crt;
+      document.body.classList.toggle('crt', renderer.post.crt);
       hud.toast(`CRT mode ${renderer.post.crt ? 'on' : 'off'}`, 1400);
       break;
     case 'm': case 'M':

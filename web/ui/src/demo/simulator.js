@@ -37,7 +37,7 @@ export class DemoSimulator {
     this.flows = new Map(); // id → { f, s }
     this.procs = new Map(); // key → Proc
     this.alerts = [];
-    this.ids = { ep: 1, flow: 1, proc: 1, alert: 1 };
+    this.ids = { ep: 1, flow: 1, proc: 1, alert: 1, trace: 1 };
     this.dnsCache = new Map();
     this.totals = { rx: 0, tx: 0, pkts: 0 };
     this.timers = [];
@@ -79,6 +79,7 @@ export class DemoSimulator {
       flows: [...this.flows.values()].map((x) => x.f),
       procs: [...this.procs.values()],
       alerts: [],
+      traces: [],
       dns: [],
       stats: this.stats(),
       history: this.history.slice(),
@@ -566,6 +567,8 @@ export class DemoSimulator {
     const at = (s, fn) => T.push([s, fn]);
 
     at(5, () => this.sceneVideo());
+    at(8, () => this.sceneTrace());
+    at(122, () => this.sceneTrace());
     at(14, () => this.alertIntel());
     at(26, () => this.sceneQuicTour());
     at(38, () => this.sceneSteam());
@@ -582,6 +585,57 @@ export class DemoSimulator {
     at(186, () => this.alertMisc());
     at(198, () => this.sceneVideo());
     return T.sort((a, b) => a[0] - b[0]);
+  }
+
+  /**
+   * `mtr api.anthropic.com`: hops answer one by one along the transatlantic
+   * route, Chicago only answers on a re-probe, RTTs jitter as mtr keeps
+   * probing, and the engine-style expiry arrives 75 s later. Transit hops use
+   * the RFC 2544 benchmarking range and `.example` names.
+   */
+  sceneTrace() {
+    const id = this.ids.trace++;
+    const at = (n, ip, name, rtt, c, asn = 64510, org = 'Example Transit (demo)') => ({
+      n, ip, name, rtt, scope: 'public', lat: c.lat, lon: c.lon, city: c.city, cc: c.cc, asn, org,
+    });
+    const route = [
+      { n: 1, ip: '192.168.1.1', name: 'router.lan', rtt: 1.2, scope: 'lan', lat: null, lon: null },
+      { n: 2, ip: '100.64.0.1', name: null, rtt: 4.8, scope: 'lan', lat: null, lon: null },
+      at(3, '198.18.1.1', 'fra1.transit.example', 6.1, CITIES.frankfurt),
+      at(4, '198.18.2.1', 'ams1.transit.example', 11.9, CITIES.amsterdam),
+      at(5, '198.18.3.1', 'lon1.transit.example', 17.4, CITIES.london),
+      at(6, '198.18.4.1', 'nyc1.transit.example', 84.6, CITIES.newyork),
+      at(7, '198.18.5.1', 'chi1.transit.example', 101.3, CITIES.chicago),
+      at(8, '198.18.6.1', 'sjc1.transit.example', 147.9, CITIES.sj),
+      at(9, '160.79.104.10', 'api.anthropic.com', 151.2, CITIES.sf, 399358, 'Anthropic, PBC'),
+    ];
+    const tr = { id, dst: '160.79.104.10', name: 'api.anthropic.com', ts: this.now(), done: false, hops: [] };
+    const send = () => this.emit({ t: 'trace', items: [{ ...tr, hops: tr.hops.map((h) => ({ ...h })) }] });
+    this.dns('api.anthropic.com', ['160.79.104.10'], { force: true, proc: this.proc('mtr').id });
+    route.forEach((h, i) => {
+      if (h.n === 7) return; // silent on the first pass
+      this.after(0.25 + i * 0.34, () => {
+        tr.hops.push({ ...h });
+        tr.hops.sort((a, b) => a.n - b.n);
+        if (h.n === 9) tr.done = true;
+        send();
+      });
+    });
+    // mtr keeps probing: Chicago answers, RTTs wobble.
+    for (let k = 1; k <= 20; k++) {
+      this.after(3.2 + k * 1.1, () => {
+        if (k === 2) {
+          tr.hops.push({ ...route[6] });
+          tr.hops.sort((a, b) => a.n - b.n);
+        }
+        for (const h of tr.hops) {
+          const base = route.find((r) => r.n === h.n).rtt;
+          h.rtt = Math.round(base * (0.97 + this.rand() * 0.08) * 10) / 10;
+        }
+        send();
+      });
+    }
+    this.after(75, () => this.emit({ t: 'gone', traces: [id] }));
   }
 
   sceneVideo() {
