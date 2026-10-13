@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Telluric</title>
-<style>html,body{margin:0;height:100%;background:#02040a;color:#5ef2ff;font:14px ui-monospace,monospace;display:grid;place-items:center}</style>
+<meta name="description" content="Your machine's live network traffic on a 3D globe.">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="styles/main.css">
 </head>
-<body><p>TELLURIC // globe renderer coming online…</p></body>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+<script type="module" src="src/main.js"></script>
+</body>
 </html>
