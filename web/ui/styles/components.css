@@ -208,6 +208,8 @@ kbd, .kbd {
 .data-tip .tt-row { display: flex; align-items: center; gap: 8px; color: var(--text-2); line-height: 1.7; }
 .data-tip .tt-row b { margin-left: auto; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .data-tip .tt-row i { width: 8px; height: 8px; border-radius: 2px; }
+.data-tip .tt-sub { font-weight: 400; color: var(--text-3); margin-left: 8px; font-size: var(--text-xs); }
+.data-tip .tt-total { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
 
 /* ── toasts ─────────────────────────────────────────────────────────────── */
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 70; width: 360px; height: 0; }

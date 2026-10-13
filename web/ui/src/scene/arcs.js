@@ -24,6 +24,8 @@ uniform mat4 uViewProj;
 uniform vec2 uViewport;
 uniform float uTime;
 uniform float uWidth;
+uniform vec3 uEye;
+uniform float uCinema;
 out vec2 vUv;
 out vec4 vColor;
 out vec4 vParams;
@@ -47,14 +49,24 @@ void main() {
   d = dl > 1e-6 ? d / dl : vec2(1.0, 0.0);
   vec2 nrm = vec2(-d.y, d.x);
   float hl = iE.x;
-  float w = uWidth * (0.75 + 0.7 * iC.w + 0.5 * iE.y) * (hl > 0.5 ? 1.7 : 1.0) * (1.0 + iD.z * 0.8);
+  vec3 A = normalize(iA.xyz), B = normalize(iB.xyz);
+  float theta = acos(clamp(dot(A, B), -1.0, 1.0));
+  // A long arc whose plane contains the line of sight projects to a straight
+  // streak off the limb; fade those (selected/route arcs excepted).
+  vec3 pn = cross(A, B);
+  float pl = length(pn);
+  vec3 mid = normalize(A + B + vec3(1e-4));
+  float side = pl > 1e-4 ? abs(dot(pn / pl, normalize(uEye - mid))) : 1.0;
+  float longK = smoothstep(0.55, 1.3, theta) * (hl > 0.5 ? 0.0 : 1.0) * (1.0 - uCinema);
+  float onEdge = longK * (1.0 - smoothstep(0.04, 0.34, side));
+  float w = uWidth * (0.7 + 0.55 * iC.w + 0.4 * iE.y) * (hl > 0.5 ? 1.6 : 1.0) * (1.0 + iD.z * 0.6) * (1.0 - 0.35 * onEdge);
   c.xy += nrm * aCorner.y * (w * 2.0 / uViewport) * c.w;
   gl_Position = c;
   vUv = vec2(tc, aCorner.y);
   float dim = hl < -0.5 ? 0.12 : 1.0;
   vec3 col = iC.rgb;
-  vColor = vec4(col, (0.24 + 0.76 * iC.w) * fade * dim * (hl > 0.5 ? 1.6 : 1.0));
-  float theta = acos(clamp(dot(normalize(iA.xyz), normalize(iB.xyz)), -1.0, 1.0));
+  float strength = mix(0.24 + 0.64 * iC.w, 0.24 + 0.76 * iC.w, uCinema);
+  vColor = vec4(col, strength * fade * dim * (hl > 0.5 ? 1.6 : 1.0) * (1.0 - 0.78 * onEdge));
   vParams = vec4(iD.w, iB.w, iD.z, theta);
   vFlash = iE.y * fade * dim;
 }`;
@@ -66,6 +78,7 @@ in vec4 vColor;
 in vec4 vParams;
 in float vFlash;
 uniform float uTime;
+uniform float uCinema;
 out vec4 outColor;
 ${GLSL_PREMUL}
 void main() {
@@ -79,6 +92,10 @@ void main() {
   float ph = fract(vUv.x * len * 22.0 + dir * uTime * 0.55 + vParams.y);
   float dash = smoothstep(0.0, 0.18, ph) * smoothstep(0.62, 0.32, ph);
   float ends = smoothstep(0.0, 0.035, vUv.x) * mix(0.55, 1.0, smoothstep(1.0, 0.9, vUv.x));
+  // Soft gradient along the arc: quieter at home, and long arcs dim at their
+  // apex so intercontinental links do not dominate the view.
+  float longK = smoothstep(0.55, 1.3, len) * (1.0 - uCinema);
+  ends *= mix(0.72, 1.0, smoothstep(0.0, 0.85, vUv.x)) * (1.0 - 0.4 * longK * sin(3.14159265 * vUv.x));
   float pulse = vParams.z > 0.0 ? 0.65 + 0.35 * sin(uTime * 7.0) : 1.0;
   float a = vColor.a;
   float body = soft * 0.32 + core * 0.95;
@@ -199,6 +216,8 @@ export class Arcs {
 
   setTheme(mode, cinema) {
     layerTheme(this, mode, cinema, { alphaK: this.alphaK0 || 1.6 });
+    this.cinema = !!cinema;
+    this.width = cinema ? 0.9 : 0.85;
   }
 
   /**
@@ -232,6 +251,8 @@ export class Arcs {
     gl.uniform2f(u.uViewport, frame.renderWidth, frame.renderHeight);
     gl.uniform1f(u.uTime, frame.time);
     gl.uniform1f(u.uWidth, this.width * frame.pxScale);
+    gl.uniform3fv(u.uEye, frame.camera.eye);
+    gl.uniform1f(u.uCinema, this.cinema ? 1 : 0);
     setPremulUniforms(gl, u, this);
     gl.bindVertexArray(this.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, (SEG + 1) * 2, this.count);

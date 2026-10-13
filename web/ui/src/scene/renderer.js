@@ -45,6 +45,7 @@ export class Renderer {
 
   setTheme(mode, cinema = false) {
     this.light = mode === 'light';
+    this.cinema = !!cinema;
     this.sky.setTheme(mode, cinema);
     this.globe.setTheme(mode);
     this.post.setTheme(mode, cinema);

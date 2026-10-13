@@ -68,6 +68,18 @@ void main() {
     col += starLayer(d, 160.0, 0.018, 31.0) * uStars * 0.8;
   }
 
+  // Light theme: a soft drop shadow from a sphere nudged down the screen.
+  if (uShadowK > 0.0) {
+    vec3 f = normalize(-uEye);
+    vec3 up = normalize(vec3(0.0, 1.0, 0.0) - f * f.y);
+    vec3 c2 = -up * 0.06;
+    float t2 = dot(c2 - uEye, d);
+    if (t2 > 0.0) {
+      float h2 = max(length(uEye + d * t2 - c2) - 1.0, 0.0);
+      col = mix(col, uShadow, uShadowK * (0.45 * exp(-h2 / 0.022) + 0.55 * exp(-h2 / 0.1)));
+    }
+  }
+
   // Atmosphere for rays that pass beside the planet.
   float tc = -dot(uEye, d);
   if (tc > 0.0) {
@@ -81,7 +93,6 @@ void main() {
       c = mix(c, uAlertCol, uAlert * 0.5);
       float glow = 0.55 * exp(-h / 0.014) + 0.16 * exp(-h / 0.06) + 0.04 * exp(-h / 0.25);
       col += c * glow * uHaloK;
-      col = mix(col, uShadow, uShadowK * (0.55 * exp(-h / 0.03) + 0.45 * exp(-h / 0.16)));
     }
   }
   outColor = vec4(col, 1.0);
@@ -97,7 +108,7 @@ function lin(hex) {
 
 const THEMES = {
   dark: { bgCenter: '#0f1220', bgEdge: '#0a0b10', haloNight: '#1a2050', haloDay: '#5566d8', shadow: '#000000', alertCol: '#f2555a', stars: 0.7, nebula: 0.4, haloK: 0.9, shadowK: 0 },
-  light: { bgCenter: '#fbfcfe', bgEdge: '#eef1f6', haloNight: '#c9d3e6', haloDay: '#ffffff', shadow: '#c3cad8', alertCol: '#d93a3f', stars: 0, nebula: 0, haloK: 0.35, shadowK: 0.55 },
+  light: { bgCenter: '#fbfcfe', bgEdge: '#eef1f6', haloNight: '#dfe5f0', haloDay: '#ffffff', shadow: '#b4bdcd', alertCol: '#d93a3f', stars: 0, nebula: 0, haloK: 0.3, shadowK: 0.5 },
 };
 
 export class Sky {

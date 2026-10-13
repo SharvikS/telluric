@@ -6,6 +6,7 @@ import { Activity } from '../components/activity.js';
 import { AreaChart } from '../charts/area.js';
 import { Donut } from '../charts/donut.js';
 import { spark } from '../charts/spark.js';
+import { smoothValues } from '../charts/series.js';
 import { rateParts, rate, rateShort, bytes, integer, pct, esc, middleTruncate, agoShort } from '../../util/format.js';
 import { APP_ROWS, THREAT_LEVELS, SEVERITY, hex, family } from '../../config.js';
 import { RANGES } from '../../app/history.js';
@@ -148,8 +149,15 @@ export class OverviewView extends View {
   }
 
   renderChartLegend() {
-    const ser = this.mode === 'direction' ? this.dirSeries() : [];
-    this.chartLegend.innerHTML = ser.map((s) => `<span><i style="background:var(${s.color})"></i>${s.label}</span>`).join('');
+    let ser = this.dirSeries();
+    if (this.mode === 'protocol') {
+      // Only the families that actually carried traffic in this range.
+      const bytesBy = this.app.history.appBytes(this.app.prefs.get('range'));
+      ser = FAMILY_SERIES.filter((s) => (bytesBy.get(s.fam) || 0) > 0)
+        .sort((a, b) => (bytesBy.get(b.fam) || 0) - (bytesBy.get(a.fam) || 0)).slice(0, 5);
+    }
+    const html = ser.map((s) => `<span><i style="background:var(${s.color})"></i>${s.label}</span>`).join('');
+    if (this.chartLegend._h !== html) { this.chartLegend._h = html; this.chartLegend.innerHTML = html; }
   }
 
   kpi(parent, { label, ic, key, color, rate: isRate }) {
@@ -198,15 +206,15 @@ export class OverviewView extends View {
     const label = RANGES[range].label;
     const series = app.history.series(range);
     this.chart.setData(series);
+    if (this.mode === 'protocol') this.renderChartLegend();
     this.thruRange.textContent = `last ${label}`;
     this.mixRange.textContent = `last ${label}`;
     if (st) {
       const samples = series.samples;
-      const stride = Math.max(1, Math.floor(samples.length / 90));
+      const span = series.to - series.from;
       for (const k of this.kpis) {
         k.tw.to(st[k.key] || 0);
-        const vals = [];
-        for (let i = 0; i < samples.length; i += stride) vals.push(samples[i][k.key] || 0);
+        const vals = smoothValues(samples, span, k.key, 40, series.step);
         if (vals.length > 1) spark(k.sp, vals, 'currentColor', { floor: k.isRate ? 1024 : 1 });
         const d = app.history.delta(range, k.key);
         if (d == null || !Number.isFinite(d)) {

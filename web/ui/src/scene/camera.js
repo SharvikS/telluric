@@ -76,6 +76,8 @@ export class Camera {
 
   /** Smoothly move so that (lat, lon) is centred at distance `dist`. */
   flyTo(lat, lon, dist = this.targetDist, duration = 1.6) {
+    // Reduced motion: arrive (almost) at once instead of flying.
+    if (this.reduced) duration = Math.min(duration, 0.05);
     this.fly = {
       t: 0,
       duration,

@@ -152,9 +152,11 @@ export class World {
     const lb = Math.log2(Math.max(bytes, 1));
     const sizeK = clamp(lb - 6, 0, 11);
     const px = this.renderer.dpr * this.renderer.scale;
-    // Size and brightness grow with log(bytes) but have ceilings.
-    const size = Math.min(0.8 + 0.22 * sizeK, 3.0) * px;
-    const bright = Math.min(0.30 + 0.05 * sizeK, 0.82);
+    // Size and brightness grow with log(bytes) but have ceilings (lower ones
+    // outside cinema mode: packets are texture, not fireworks).
+    const cin = this.renderer.cinema;
+    const size = Math.min(0.7 + (cin ? 0.22 : 0.15) * sizeK, cin ? 3.0 : 2.1) * px;
+    const bright = Math.min(0.26 + (cin ? 0.05 : 0.035) * sizeK, cin ? 0.82 : 0.56);
     const threat = (flow.threat || 0) > 0 || (ep.threat || 0) >= 40;
     const color = threat ? THREAT_COLOR_FN() : appColor(flow.app);
     const dimmed = this.focus.active && !this.matchesFocus(ep);
@@ -216,7 +218,10 @@ export class World {
       const age = t - b0;
       const spring = age > 0.9 ? 1 : 1 - Math.exp(-age * 9) * Math.cos(age * 16);
       m.push(it.pos, MK.DOT, col, (0.55 + 0.9 * act + Math.min(0.8, it.flash)) * dim, (3.2 + 4.5 * act + (sel ? 4 : 0)) * px * spring);
-      if (act > 0.12 && kind === 'geo') m.push(it.pos, MK.BEAM, col, (0.35 + 0.6 * act) * dim, 1.25 * px, 0, 0, 0.015 + 0.11 * act);
+      if (act > 0.12 && kind === 'geo') {
+        const cin = this.renderer.cinema;
+        m.push(it.pos, MK.BEAM, col, (cin ? 0.35 + 0.6 * act : 0.25 + 0.35 * act) * dim, (cin ? 1.25 : 1.0) * px, 0, 0, cin ? 0.015 + 0.11 * act : 0.01 + 0.045 * act);
+      }
       if (sel) m.push(it.pos, MK.RIPPLE, vizLinear('sel'), 1.0, 0.035, t - (t % 1.4), 1.4);
       if (threat) m.push(it.pos, MK.RIPPLE, THREAT_COLOR_FN(), 0.9, 0.04, t - ((t + id * 0.37) % 1.8), 1.8);
     }

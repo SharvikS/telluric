@@ -341,6 +341,7 @@ export class App {
     const applyMotion = () => {
       const m = p.get('motion');
       setReducedMotion(m === 'reduced' || (m === 'system' && mqReduce.matches));
+      this.camera.reduced = motion.reduced;
     };
     mqReduce.addEventListener('change', applyMotion);
     applyMotion();
@@ -350,13 +351,14 @@ export class App {
       const g = p.get('globe');
       this.world.setLayers(g);
       this.labels.setEnabled(g.labels);
-      this.camera.autoRotate = g.autoRotate;
+      // Ambient motion stops when the user asks for less motion.
+      this.camera.autoRotate = g.autoRotate && !motion.reduced;
     };
     applyGlobe();
     this.root.classList.toggle('nav-collapsed', p.get('navCollapsed'));
     this.theme.on('change', (mode) => this.applyTheme(mode));
     p.on('change', (key) => {
-      if (key === 'motion') applyMotion();
+      if (key === 'motion') { applyMotion(); applyGlobe(); }
       else if (key === 'units' || key === 'clock' || key === 'tz') {
         applyFormat();
         for (const v of this.viewMap.values()) v.lastRefresh = 0;

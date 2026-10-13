@@ -36,6 +36,7 @@ uniform vec3 uOcean, uShelf, uGrat, uLandFill, uDotNight, uDotDay, uHeatLo, uHea
 uniform vec3 uCoast, uCoastGlow, uBorder, uSelTint, uLightsCol, uRadar, uRimNight, uRimDay, uAlertCol;
 uniform vec4 uK;   // night multiplier, city-light gain, limb darkening, rim gain
 uniform vec4 uK2;  // coast, border, specular, graticule
+uniform vec4 uRimLine; // silhouette outline colour, strength (light theme)
 uniform float uTerminator; // day/night shading on/off
 uniform float uHeatOn;
 
@@ -198,6 +199,9 @@ void main() {
   float rim = pow(1.0 - NdotV, 4.0);
   vec3 atmo = mix(uRimNight, uRimDay, smoothstep(-0.25, 0.6, NdotL));
   col += atmo * rim * uK.w;
+  // Crisp ~1.3 px outline at the silhouette so a pale globe holds its shape.
+  float px = max(fwidth(NdotV), 1e-4);
+  col = mix(col, uRimLine.rgb, (1.0 - smoothstep(0.0, px * 1.4, NdotV)) * uRimLine.a);
 
   outColor = vec4(col, 1.0);
 }`;
@@ -220,13 +224,17 @@ const PALETTES = {
     coast: '#5d6ab5', coastGlow: '#0b1030', border: '#2e3858', selTint: '#8b93ff', lightsCol: '#f2b23e',
     radar: '#7b7ff6', rimNight: '#141a40', rimDay: '#4b5cc8', alertCol: '#f2555a',
     k: [0.62, 0.55, 0.62, 0.55], k2: [0.55, 0.55, 0.08, 0.35],
+    rimLine: '#000000', rimLineK: 0,
   },
+  // Light: a cool slate ocean a step darker than the page, paler land with
+  // higher-contrast dots, a soft terminator and limb, and a crisp outline.
   light: {
-    ocean: '#eef2f8', shelf: '#000000', grat: '#dde3ee', landFill: '#e6ebf3',
-    dotNight: '#a4afc4', dotDay: '#93a0b8', heatLo: '#7b7ff6', heatHi: '#5b5bd6',
-    coast: '#8e9bb5', coastGlow: '#000000', border: '#c3cbdb', selTint: '#5b5bd6', lightsCol: '#d98a1a',
-    radar: '#5b5bd6', rimNight: '#dfe6f2', rimDay: '#ffffff', alertCol: '#d93a3f',
-    k: [0.93, 0.18, 0.88, 0.55], k2: [0.65, 0.7, 0.0, 0.45],
+    ocean: '#d9e0eb', shelf: '#000000', grat: '#ccd4e1', landFill: '#eef1f6',
+    dotNight: '#7f8aa3', dotDay: '#6c7894', heatLo: '#7b7ff6', heatHi: '#5b5bd6',
+    coast: '#97a3ba', coastGlow: '#000000', border: '#c6cedc', selTint: '#5b5bd6', lightsCol: '#d98a1a',
+    radar: '#5b5bd6', rimNight: '#e3e8f1', rimDay: '#ffffff', alertCol: '#d93a3f',
+    k: [0.84, 0.18, 0.8, 0.42], k2: [0.6, 0.7, 0.0, 0.5],
+    rimLine: '#9eaac0', rimLineK: 0.7,
   },
 };
 
@@ -334,6 +342,7 @@ export class Globe {
     gl.uniform3fv(u.uLightsCol, P.lightsCol); gl.uniform3fv(u.uRadar, P.radar); gl.uniform3fv(u.uRimNight, P.rimNight);
     gl.uniform3fv(u.uRimDay, P.rimDay); gl.uniform3fv(u.uAlertCol, P.alertCol);
     gl.uniform4fv(u.uK, P.k); gl.uniform4fv(u.uK2, P.k2);
+    gl.uniform4f(u.uRimLine, P.rimLine[0], P.rimLine[1], P.rimLine[2], P.rimLineK);
     gl.uniform1f(u.uTerminator, this.terminator ? 1 : 0);
     gl.uniform1f(u.uHeatOn, this.heatOn ? 1 : 0);
     const texs = [this.texLand, this.texBorders, this.texLights, this.texCountries, this.texHeat];

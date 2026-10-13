@@ -207,6 +207,11 @@
 }
 
 /* Reduced motion: collapse durations; components also check prefs in JS. */
+/* Belt and braces for hard-coded timings: no movement, no looping pulses. */
+:root.reduce-motion *, :root.reduce-motion *::before, :root.reduce-motion *::after {
+  animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important; transition-delay: 0s !important; scroll-behavior: auto !important;
+}
 :root.reduce-motion {
   --dur-instant: 1ms;
   --dur-fast: 1ms;
