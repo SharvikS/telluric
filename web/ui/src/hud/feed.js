@@ -19,6 +19,7 @@ export class Feed {
     this.suppressed = 0;
     this.typing = null;
     this.total = 0;
+    this.connLines = new Map(); // flow id → feed line awaiting process attribution
 
     store.on('dns', (items) => {
       for (const d of items) {
@@ -31,11 +32,22 @@ export class Feed {
         }
       }
     });
+    // Resolver chatter already appears as DNS lines; don't double it as connections.
+    const quiet = new Set(['dns', 'mdns', 'ssdp', 'ntp', 'dhcp']);
     store.on('flow', (f, isNew) => {
-      if (!isNew) return;
+      if (!isNew) {
+        // Attribution usually lands a few hundred ms after the flow: patch the line.
+        const ln = this.connLines.get(f.id);
+        if (ln && f.proc) {
+          this.patchWho(ln);
+          this.connLines.delete(f.id);
+        }
+        return;
+      }
+      if (quiet.has(f.app)) return;
       const ep = store.endpoints.get(f.ep);
       const p = f.proc ? store.procs.get(f.proc) : null;
-      const who = p ? esc(p.name) : '<span style="color:var(--faint)">?</span>';
+      const who = `<span class="who" data-flow="${f.id}">${p ? esc(p.name) : '<span style="color:var(--faint)">…</span>'}</span>`;
       const host = ep ? esc(middleTruncate(ep.name || ep.ip, 30)) : '…';
       const where = ep && ep.cc ? ` <span style="color:var(--faint)">${esc(ep.cc)}</span>` : ep && ep.scope !== 'public' ? ' <span style="color:var(--faint)">LAN</span>' : '';
       const arrow = f.dir === 'in' ? '←' : '→';
@@ -50,6 +62,14 @@ export class Feed {
 
   system(text) {
     this.push('sys', 'SYS', text, Date.now(), true);
+  }
+
+  patchWho(ln) {
+    const span = ln.querySelector('.who');
+    if (!span) return;
+    const f = this.store.flows.get(Number(span.dataset.flow));
+    const p = f && f.proc ? this.store.procs.get(f.proc) : null;
+    if (p) span.textContent = p.name;
   }
 
   push(cls, tag, html, ts, priority = false) {
@@ -77,6 +97,11 @@ export class Feed {
       const ln = document.createElement('div');
       ln.className = `ln ${it.cls}`;
       ln.innerHTML = `<span class="ts">${timeOfDay(it.ts)}</span><span class="k">${it.tag}</span><span class="msg">${it.html}</span>`;
+      const who = ln.querySelector('.who');
+      if (who) {
+        this.connLines.set(Number(who.dataset.flow), ln);
+        if (this.connLines.size > 150) this.connLines.delete(this.connLines.keys().next().value);
+      }
       frag.appendChild(ln);
       lastLine = ln;
       this.total++;
@@ -97,6 +122,7 @@ export class Feed {
     let i = 0;
     msg.textContent = '';
     msg.appendChild(cursor);
+    const ln2 = ln;
     const step = () => {
       i = Math.min(text.length, i + 3);
       msg.textContent = text.slice(0, i);
@@ -104,13 +130,15 @@ export class Feed {
       if (i >= text.length) return this.finishTyping();
       this.typing.timer = setTimeout(step, 14);
     };
-    this.typing = { msg, full, timer: setTimeout(step, 14) };
+    this.typing = { msg, full, ln: ln2, timer: setTimeout(step, 14) };
   }
 
   finishTyping() {
     if (!this.typing) return;
     clearTimeout(this.typing.timer);
     this.typing.msg.innerHTML = this.typing.full;
+    // The process may have been attributed while the line was typing.
+    this.patchWho(this.typing.ln);
     this.typing = null;
   }
 }

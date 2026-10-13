@@ -49,7 +49,7 @@ export class Hud {
         this.toast('No engine found — running the built-in demo. Start <code>telluric</code> and this page switches to live traffic.', 9000);
         this.feed.system('no engine found · demo traffic is simulated');
       } else if (state === 'demo') {
-        this.feed.system('demo mode · simulated traffic, no capture');
+        this.feed.system(detail && detail.startsWith('telluric') ? `linked to ${esc(detail)} · synthetic world` : 'demo mode · simulated traffic, no capture');
       } else if (state === 'live') {
         this.feed.system(`linked to ${esc(detail || 'engine')}`);
       } else if (state === 'reconnecting') {

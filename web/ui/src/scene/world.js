@@ -11,8 +11,12 @@ const MAX_SPAWN_PER_FRAME = 700;
 // Per endpoint and direction, comets are rate-limited by a token bucket; bytes
 // from throttled shots are carried into the next comet, so a 50 MB/s download
 // reads as a stream of fat, bright comets instead of a solid white bar.
-const COMET_RATE = 14; // comets per second per endpoint and direction
+const COMET_RATE = 14; // comets per second per endpoint and direction (long arcs)
 const COMET_BURST = 5;
+// Hard cap on comets in flight per endpoint and direction: a 20 MB/s download
+// must read as "busy", never as a solid laser beam.
+const MAX_INFLIGHT = 7;
+const STRESS = new URLSearchParams(location.search).has('stress');
 
 /**
  * Binds the store to the GPU layers: arcs per endpoint, comets per packet
@@ -97,14 +101,23 @@ export class World {
     if (!ep) return false;
     if (!this.placement.hasHome) return true;
     const inbound = (flags & 1) === 1;
+    const item = this.arcs.items.get(ep.id) || this.arcs.add(ep, this.now());
+    const b = this.placement.position(ep, birth, item.pos);
+    const a = this.placement.home;
+    const geo = !Placement.orbits(ep);
+    const theta = Math.acos(clamp(dot3(a, b) / (len3(b) || 1), -1, 1));
     const key = ep.id * 2 + (inbound ? 1 : 0);
     let bk = this.buckets.get(key);
-    if (!bk) this.buckets.set(key, (bk = { tokens: COMET_BURST, at: birth, bytes: 0, pkts: 0 }));
-    bk.tokens = Math.min(COMET_BURST, bk.tokens + Math.max(0, birth - bk.at) * COMET_RATE);
+    if (!bk) this.buckets.set(key, (bk = { tokens: COMET_BURST, at: birth, bytes: 0, pkts: 0, inflight: [] }));
+    // Short arcs get proportionally fewer comets, so they stay discrete.
+    const rate = STRESS ? 60 : geo ? clamp(3 + COMET_RATE * (theta / 0.7), 3, COMET_RATE) : 4;
+    bk.tokens = Math.min(COMET_BURST, bk.tokens + Math.max(0, birth - bk.at) * rate);
     bk.at = Math.max(bk.at, birth);
     bk.bytes += bytes;
     bk.pkts += pkts;
-    if (bk.tokens < 1 || this.spawnedThisFrame >= MAX_SPAWN_PER_FRAME) {
+    while (bk.inflight.length && bk.inflight[0] <= birth) bk.inflight.shift();
+    const full = !STRESS && bk.inflight.length >= MAX_INFLIGHT;
+    if (bk.tokens < 1 || full || this.spawnedThisFrame >= MAX_SPAWN_PER_FRAME) {
       if (this.spawnedThisFrame >= MAX_SPAWN_PER_FRAME) this.droppedShots++;
       return true;
     }
@@ -114,23 +127,21 @@ export class World {
     bk.bytes = 0;
     bk.pkts = 0;
     this.spawnedThisFrame++;
-    const item = this.arcs.items.get(ep.id) || this.arcs.add(ep, this.now());
-    const b = this.placement.position(ep, birth, item.pos);
-    const a = this.placement.home;
-    const geo = !Placement.orbits(ep);
-    const theta = Math.acos(clamp(dot3(a, b) / (len3(b) || 1), -1, 1));
     const lift = geo ? arcLift(theta) : 0.012;
     const lb = Math.log2(Math.max(bytes, 1));
     const sizeK = clamp(lb - 6, 0, 11);
     const px = this.renderer.dpr * this.renderer.scale;
-    const size = (0.8 + 0.3 * sizeK) * px;
-    const bright = 0.32 + 0.075 * sizeK;
+    // Size and brightness grow with log(bytes) but have ceilings.
+    const size = Math.min(0.8 + 0.22 * sizeK, 3.0) * px;
+    const bright = Math.min(0.30 + 0.05 * sizeK, 0.82);
     const threat = (flow.threat || 0) > 0 || (ep.threat || 0) >= 40;
     const color = threat ? THREAT_COLOR : appColor(flow.app);
+    const dimmed = this.focus.active && !this.matchesFocus(ep);
     const duration = geo ? (0.55 + 1.55 * (theta / Math.PI)) / this.speed : 0.6 / this.speed;
-    const tail = geo ? clamp(0.22 / Math.max(theta, 0.05), 0.07, 0.42) : 0.35;
-    this.comets.spawn(a, b, lift, color, size, bright, birth, duration, inbound, tail);
-    this.arcs.flash(ep.id, 0.035 + 0.01 * sizeK);
+    const tail = geo ? clamp(0.18 / Math.max(theta, 0.05), 0.06, 0.26) : 0.3;
+    if (!STRESS) bk.inflight.push(birth + duration * (1 + tail));
+    this.comets.spawn(a, b, lift, color, size, dimmed ? bright * 0.12 : bright, birth, duration, inbound, tail);
+    this.arcs.flash(ep.id, 0.02 + 0.006 * sizeK);
     return true;
   }
 

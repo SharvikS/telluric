@@ -320,12 +320,13 @@ function cinematicStep(now) {
 
 // ── frame loop ──────────────────────────────────────────────────────────────
 const sun = new Float32Array(3);
-const stats = { frames: 0, frameMs: 0, fps: 0, comets: 0, arcs: 0, scale: 1 };
+const stats = { frames: 0, frameMs: 0, fps: 0, comets: 0, arcs: 0, scale: 1, tWorld: 0, tRender: 0, tHud: 0 };
 window.__telluric = stats;
 let last = performance.now();
 let fpsAcc = 0, fpsN = 0, first = true, layoutAt = 0;
 
 function frame(now) {
+  const cbStart = performance.now();
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   if (now - fx.lastInput > 90000 && !fx.cinematic && store.endpoints.size) setCinematic(true, true);
@@ -348,11 +349,18 @@ function frame(now) {
     cssWidth: renderer.cssW, cssHeight: renderer.cssH,
     renderWidth: renderer.scene.width, renderHeight: renderer.scene.height,
   };
+  const t0 = performance.now();
   world.frame(f, dt);
+  const t1 = performance.now();
   renderer.render(f);
+  const t2 = performance.now();
   hud.update(f, now, dt);
+  const t3 = performance.now();
+  stats.tWorld = stats.tWorld * 0.95 + (t1 - t0) * 0.05 || 0;
+  stats.tRender = stats.tRender * 0.95 + (t2 - t1) * 0.05 || 0;
+  stats.tHud = stats.tHud * 0.95 + (t3 - t2) * 0.05 || 0;
 
-  const ms = performance.now() - now;
+  const ms = performance.now() - cbStart;
   renderer.adapt(ms, now);
   stats.frames++;
   stats.frameMs = stats.frameMs * 0.95 + ms * 0.05;
@@ -365,6 +373,7 @@ function frame(now) {
   stats.eps = store.endpoints.size;
   stats.flows = store.flows.size;
   stats.alerts = store.alerts.size;
+  stats.msgMsPerSec = conn.msgMs.rate;
   if (first) {
     first = false;
     loading.classList.add('done');

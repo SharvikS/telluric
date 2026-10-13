@@ -18,6 +18,8 @@ export class Minimap {
     this.size = [0, 0];
     this.last = 0;
     this.countEl = document.getElementById('c-world');
+    this.paths = new Map(); // ep id → Float32Array of [lon, lat] samples (cached: geo is static)
+    this.pathHome = '';
     cv.addEventListener('click', (e) => {
       const r = cv.getBoundingClientRect();
       const { x0, y0, mw, mh } = this.box(r.width, r.height);
@@ -93,25 +95,42 @@ export class Minimap {
     let n = 0;
     if (pl.hasHome) {
       const [hl, hn] = pl.homeLL;
+      const homeKey = `${hl},${hn}`;
+      if (homeKey !== this.pathHome) {
+        this.paths.clear();
+        this.pathHome = homeKey;
+      }
       const a = latLonToVec3(hl, hn);
       const b = new Float32Array(3);
       ctx.lineWidth = Math.max(1, 1.1 * dpr);
+      const located = [];
       for (const [, it] of this.world.arcs.items) {
+        if (it.death || Placement.orbits(it.ep)) continue;
         const ep = it.ep;
-        if (it.death || Placement.orbits(ep)) continue;
-        n++;
-        latLonToVec3(ep.lat, ep.lon, 1, b);
+        located.push([(ep.rateIn || 0) + (ep.rateOut || 0) + ((ep.threat || 0) >= 40 ? 1e12 : 0), ep]);
+      }
+      n = located.length;
+      // Draw the busiest 300 arcs; everything else is just a dot.
+      if (located.length > 300) located.sort((x, y) => y[0] - x[0]);
+      located.forEach(([, ep], i) => {
         const rate = (ep.rateIn || 0) + (ep.rateOut || 0);
         const k = clamp((Math.log10(1 + rate) - 2) / 5, 0, 1);
         const threat = (ep.threat || 0) >= 40;
         const rgb = threat ? THREAT_COLOR : appColor(ep._app);
-        ctx.strokeStyle = cssColor(rgb, 0.18 + 0.7 * k);
-        this.greatCircle(ctx, a, b, X, Y, mw);
+        if (i < 300) {
+          let pts = this.paths.get(ep.id);
+          if (!pts) {
+            latLonToVec3(ep.lat, ep.lon, 1, b);
+            pts = this.samplePath(a, b);
+            this.paths.set(ep.id, pts);
+          }
+          ctx.strokeStyle = cssColor(rgb, 0.18 + 0.7 * k);
+          this.strokePath(ctx, pts, X, Y, mw);
+        }
         ctx.fillStyle = cssColor(rgb, 0.6 + 0.4 * k);
-        ctx.beginPath();
-        ctx.arc(X(ep.lon), Y(ep.lat), (1.4 + 2 * k) * dpr, 0, Math.PI * 2);
-        ctx.fill();
-      }
+        ctx.fillRect(X(ep.lon) - (1 + k) * dpr, Y(ep.lat) - (1 + k) * dpr, (2 + 2 * k) * dpr, (2 + 2 * k) * dpr);
+      });
+      if (this.paths.size > 4 * Math.max(300, located.length)) this.paths.clear();
       const pulse = (t % 1.6) / 1.6;
       ctx.strokeStyle = `rgba(160, 250, 255, ${1 - pulse})`;
       ctx.beginPath();
@@ -133,20 +152,29 @@ export class Minimap {
     if (this.countEl) this.countEl.textContent = n ? `${n} located` : '';
   }
 
-  /** Strokes a great circle a→b, breaking the path at the antimeridian. */
-  greatCircle(ctx, a, b, X, Y, mw) {
+  /** Great circle a→b sampled as [lon, lat] pairs. */
+  samplePath(a, b) {
     const N = 28;
-    const cosT = clamp(a[0] * b[0] + a[1] * b[1] + a[2] * b[2], -1, 1);
-    const th = Math.acos(cosT);
+    const out = new Float32Array((N + 1) * 2);
+    const th = Math.acos(clamp(a[0] * b[0] + a[1] * b[1] + a[2] * b[2], -1, 1));
     const s = Math.sin(th) || 1;
-    let px = null;
-    ctx.beginPath();
     for (let i = 0; i <= N; i++) {
       const tt = i / N;
       const wa = th < 1e-4 ? 1 - tt : Math.sin((1 - tt) * th) / s;
       const wb = th < 1e-4 ? tt : Math.sin(tt * th) / s;
       const [lat, lon] = vec3ToLatLon([a[0] * wa + b[0] * wb, a[1] * wa + b[1] * wb, a[2] * wa + b[2] * wb]);
-      const x = X(lon), y = Y(lat);
+      out[i * 2] = lon;
+      out[i * 2 + 1] = lat;
+    }
+    return out;
+  }
+
+  /** Strokes a sampled path, breaking it where it crosses the antimeridian. */
+  strokePath(ctx, pts, X, Y, mw) {
+    let px = null;
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i += 2) {
+      const x = X(pts[i]), y = Y(pts[i + 1]);
       if (px === null || Math.abs(x - px) > mw / 2) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
       px = x;

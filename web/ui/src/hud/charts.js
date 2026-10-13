@@ -113,13 +113,15 @@ export class Waterfall {
     this.max = 1e5;
     this.last = 0;
     this.labelW = 54;
+    this.compactW = 16;
   }
 
   push(rows, now) {
     if (now - this.last < this.step * 1000) return;
     this.last = now;
     const [w, h, dpr] = fitCanvas(this.cv);
-    const lw = Math.round(this.labelW * dpr);
+    const rowsH = h / APP_ROWS.length;
+    const lw = Math.round((rowsH >= 9.5 * dpr ? this.labelW : this.compactW) * dpr);
     const gw = Math.max(1, w - lw);
     if (this.off.width !== gw || this.off.height !== h) {
       const old = this.off;
@@ -160,10 +162,13 @@ export class Waterfall {
     ctx.drawImage(this.off, lw, 0);
     ctx.font = `700 ${Math.round(9 * dpr)}px 'JetBrains Mono', monospace`;
     ctx.textBaseline = 'middle';
+    const showText = rowH >= 9.5 * dpr;
     APP_ROWS.forEach(([key, label], i) => {
       const rgb = appColor(key === 'other' ? 'unknown' : key);
+      const sq = Math.min(4 * dpr, rowH * 0.6);
       ctx.fillStyle = cssColor(rgb, 0.85);
-      ctx.fillRect(6 * dpr, i * rowH + rowH / 2 - 2 * dpr, 4 * dpr, 4 * dpr);
+      ctx.fillRect(6 * dpr, i * rowH + rowH / 2 - sq / 2, sq, sq);
+      if (!showText) return;
       ctx.fillStyle = 'rgba(160, 200, 220, 0.75)';
       ctx.fillText(label, 15 * dpr, i * rowH + rowH / 2 + 0.5);
     });

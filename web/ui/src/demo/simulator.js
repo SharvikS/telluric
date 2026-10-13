@@ -1,6 +1,6 @@
 import { encodePkts } from '../net/protocol.js';
 import { angularDistance } from '../util/math.js';
-import { ENDPOINTS, LAN, PROCS, JA4, BROWSING } from './catalog.js';
+import { ENDPOINTS, LAN, PROCS, JA4, BROWSING, CITIES } from './catalog.js';
 
 // A synthetic engine. It keeps the same entities the Go engine keeps and
 // emits exactly the wire protocol (JSON objects plus binary PKTS frames), so
@@ -24,7 +24,8 @@ function mulberry32(seed) {
 }
 
 export class DemoSimulator {
-  constructor({ home, onMessage, onBinary, seed = 1337 }) {
+  constructor({ home, onMessage, onBinary, seed = 1337, stress = 0 }) {
+    this.stress = stress;
     this.home = home;
     this.onMessage = onMessage;
     this.onBinary = onBinary;
@@ -69,6 +70,7 @@ export class DemoSimulator {
     // Build the baseline silently, warm it up, then send it as the snapshot.
     this.silent = true;
     this.baseline();
+    if (this.stress) this.addStress(this.stress);
     for (let i = 0; i < 60; i++) this.step(false);
     this.silent = false;
     this.emit({
@@ -518,6 +520,25 @@ export class DemoSimulator {
     this.open('jio', 'firefox', { rin: 5000, rout: 900, shape: 'idle', duration: 40 });
     this.open('naver', 'firefox', { rin: 7000, rout: 1000, shape: 'decay', duration: 25 });
     this.open('mirror', 'pacman', { rin: 90000, rout: 3000, shape: 'decay', duration: 20 });
+  }
+
+  /**
+   * Benchmark load: N endpoints in the RFC 2544 benchmarking range
+   * (198.18.0.0/15), scattered around world cities, each with a heavy flow.
+   */
+  addStress(n) {
+    const cities = Object.values(CITIES);
+    for (let i = 0; i < n; i++) {
+      const c = cities[i % cities.length];
+      const key = `stress-${i}`;
+      this.catalog.set(key, {
+        key, ip: `198.18.${(i >> 8) & 255}.${i & 255}`, name: `bench-${i}.example`,
+        city: c.city, region: c.region, cc: c.cc, country: c.country,
+        lat: c.lat + (this.rand() - 0.5) * 14, lon: c.lon + (this.rand() - 0.5) * 22,
+        asn: 64600, org: 'Benchmark load (RFC 2544)', scope: 'public', app: this.rand() < 0.5 ? 'quic' : 'tls', port: 443,
+      });
+      this.open(key, 'firefox', { rin: 200_000 + this.rand() * 2_000_000, rout: 20_000 + this.rand() * 200_000, dns: false });
+    }
   }
 
   pick(list) {

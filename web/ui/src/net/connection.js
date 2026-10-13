@@ -34,6 +34,7 @@ export class Connection extends Emitter {
     this.state = 'connecting';
     this.probeTimer = null;
     this.pingTimer = null;
+    this.msgMs = { acc: 0, at: performance.now(), rate: 0 }; // main-thread ms/s spent handling frames
     this.captureToken();
   }
 
@@ -109,6 +110,21 @@ export class Connection extends Emitter {
   }
 
   onMessage(data) {
+    const t0 = performance.now();
+    try {
+      this.dispatch(data);
+    } finally {
+      const m = this.msgMs;
+      m.acc += performance.now() - t0;
+      if (t0 - m.at > 1000) {
+        m.rate = (m.acc * 1000) / (t0 - m.at);
+        m.acc = 0;
+        m.at = t0;
+      }
+    }
+  }
+
+  dispatch(data) {
     if (typeof data === 'string') {
       let msg;
       try {
@@ -122,7 +138,7 @@ export class Connection extends Emitter {
         this.attempts = 0;
         if (this.demo) this.stopDemo();
         this.store.reset();
-        this.setState(msg.mode === 'replay' ? 'replay' : 'live', msg.server || '');
+        this.setState(msg.mode === 'replay' ? 'replay' : msg.mode === 'demo' ? 'demo' : 'live', msg.server || '');
         clearInterval(this.pingTimer);
         this.pingTimer = setInterval(() => this.send({ t: 'ping' }), 20000);
       }
@@ -148,6 +164,7 @@ export class Connection extends Emitter {
       onMessage: (m) => this.store.handle(m),
       onBinary: (buf) => this.onMessage(buf),
       seed: Number(this.params.get('seed')) || 1337,
+      stress: Math.min(4000, Number(this.params.get('stress')) || 0),
     });
     this.setState('demo', detail);
     this.demo.start();

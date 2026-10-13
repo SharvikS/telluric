@@ -2,6 +2,18 @@ import { esc, bytes, rate, ago, duration, latLon, timeOfDay } from '../util/form
 import { appColor, cssColor, SEVERITY, ALERT_KINDS, SERVICES } from '../config.js';
 import { sparkline, fitCanvas } from './charts.js';
 
+/** "Post-quantum" summary for an endpoint's TLS/QUIC flows (Flow.pq). */
+function pqRow(flows) {
+  const known = flows.filter((f) => typeof f.pq === 'boolean');
+  if (!known.length) return '';
+  const yes = known.filter((f) => f.pq).length;
+  const val = yes === known.length
+    ? '<span style="color:var(--green)">ML-KEM ✓</span>'
+    : yes ? `<span style="color:var(--amber)">ML-KEM on ${yes} of ${known.length} handshakes</span>`
+      : '<span style="color:var(--muted)">not offered</span>';
+  return `<dt>Post-quantum</dt><dd title="client offered a post-quantum hybrid key exchange (X25519MLKEM768)">${val}</dd>`;
+}
+
 /** Slide-in panel with everything known about one endpoint. */
 export class Detail {
   constructor(store, { onClose, onFocusProc }) {
@@ -29,12 +41,14 @@ export class Detail {
   open(id) {
     this.epId = id;
     this.el.classList.add('open');
+    document.getElementById('hud').classList.add('detail-open');
     this.render();
   }
 
   close() {
     if (!this.isOpen) return;
     this.el.classList.remove('open');
+    document.getElementById('hud').classList.remove('detail-open');
     this.epId = 0;
     this.onClose();
   }
@@ -90,7 +104,7 @@ export class Detail {
       const p = f.proc ? s.procs.get(f.proc) : null;
       const rgb = appColor(f.app);
       const tls = f.sni || f.alpn || f.tlsv
-        ? `<div class="dim">${f.sni ? `SNI <span style="color:var(--text)">${esc(f.sni)}</span>` : 'no SNI'}${f.alpn ? ` · ${esc(f.alpn)}` : ''}${f.tlsv ? ` · TLS ${esc(f.tlsv)}` : ''}${f.ech ? ' · <span style="color:var(--green)">ECH</span>' : ''}${f.pq ? ' · <span style="color:var(--violet)" title="post-quantum hybrid key exchange (ML-KEM) offered">PQ</span>' : ''}</div>`
+        ? `<div class="dim">${f.sni ? `SNI <span style="color:var(--text)">${esc(f.sni)}</span>` : 'no SNI'}${f.alpn ? ` · ${esc(f.alpn)}` : ''}${f.tlsv ? ` · TLS ${esc(f.tlsv)}` : ''}${f.ech ? ' · <span style="color:var(--green)">ECH</span>' : ''}${f.pq ? ' · <span style="color:var(--green)" title="client offered a post-quantum hybrid key exchange (ML-KEM)">PQ ✓</span>' : ''}</div>`
         : '';
       const ja4 = f.ja4 ? `<div class="ja4">JA4 ${esc(f.ja4)}</div>` : '';
       return `<tr>
@@ -117,6 +131,7 @@ export class Detail {
         <dt>Total</dt><dd>↓ ${bytes(ep.bytesIn)} &nbsp; ↑ ${bytes(ep.bytesOut)}</dd>
         <dt>Seen</dt><dd>${timeOfDay(ep.first)} → ${ago(ep.last, s.now())} ago <span style="color:var(--muted)">(${duration(ep.last - ep.first)})</span></dd>
         <dt>Dominant</dt><dd style="color:${cssColor(appRgb)}">${esc(String(ep._app || 'unknown').toUpperCase())}</dd>
+        ${pqRow(flows)}
       </dl>
       <canvas class="spark" id="detail-spark"></canvas>
       ${procs.size ? `<h3>Processes</h3><dl class="kv">${[...procs.values()].map((p) => `<dt><a data-proc="${p.id}" style="color:var(--cyan);cursor:pointer">${esc(p.name)}</a></dt><dd class="mono">pid ${p.pid} · ${esc(p.user || '')}${p.unit ? ` · ${esc(p.unit)}` : ''}<br><span style="color:var(--muted)">${esc((p.cmd || p.exe || '').slice(0, 120))}</span></dd>`).join('')}</dl>` : ''}
