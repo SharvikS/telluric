@@ -215,6 +215,7 @@ in flight). Clients should keep such shots briefly (≈1 s) or drop them.
   "sni": "www.youtube.com", "alpn": "h2", "tlsv": "1.3",
   "ja4": "t13d1516h2_8daaf6152771_e5627efa2ab1",
   "ech": false,
+  "pq": true,
   "bytesIn": 18000000, "bytesOut": 350000,
   "pktsIn": 12500, "pktsOut": 4100,
   "rateIn": 1200000, "rateOut": 11000,
@@ -229,9 +230,11 @@ in flight). Clients should keep such shots briefly (≈1 s) or drop them.
 * `app`: application protocol, see [Apps](#apps).
 * `dir`: who initiated: `out` (this machine) or `in` (the remote).
 * `state`: `syn` | `est` | `fin` | `rst` | `closed` (TCP) or `active` (others).
-* `rtt`: handshake round-trip time in ms (TCP SYN→SYN/ACK); null if unknown.
-* `sni`, `alpn`, `tlsv`, `ja4`, `ech`: from the TLS ClientHello (also
-  for QUIC, whose Initial packets the engine decrypts). Null when not TLS.
+* `rtt`: handshake round-trip time in ms (TCP SYN→SYN/ACK, QUIC client
+  Initial→first server long-header packet); null if unknown.
+* `sni`, `alpn`, `tlsv`, `ja4`, `ech`, `pq`: from the TLS ClientHello (also
+  for QUIC, whose Initial packets the engine decrypts). `pq` means the client
+  offered a post-quantum hybrid key exchange (ML-KEM). Absent when not TLS.
 
 ### Proc — a local process with network activity
 

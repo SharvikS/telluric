@@ -98,6 +98,7 @@ type Engine struct {
 	alertKeys   map[string]alertRef
 
 	now       int64 // engine clock (ns): wall time, or packet time if ahead
+	pktTS     int64 // capture timestamp of the frame being processed
 	lastRates int64
 	lastDelta int64
 	lastStats int64

@@ -113,7 +113,7 @@ func (e *Engine) handleDNS(fl *flow, p *decode.Packet, _ bool) {
 	dst := netip.AddrPortFrom(p.Dst, p.DstPort)
 	if !m.Response {
 		if len(e.pdns.pending) < maxPending {
-			e.pdns.pending[dnsTx{src, dst, m.ID}] = e.now
+			e.pdns.pending[dnsTx{src, dst, m.ID}] = e.pktTS
 		}
 		return
 	}
@@ -121,7 +121,7 @@ func (e *Engine) handleDNS(fl *flow, p *decode.Packet, _ bool) {
 	tx := dnsTx{dst, src, m.ID}
 	var ms *float64
 	if t0, ok := e.pdns.pending[tx]; ok {
-		ms = wire.Float(round(float64(e.now-t0)/1e6, 2))
+		ms = wire.Float(round(float64(e.pktTS-t0)/1e6, 2))
 		delete(e.pdns.pending, tx)
 	}
 
@@ -141,10 +141,6 @@ func (e *Engine) handleDNS(fl *flow, p *decode.Packet, _ bool) {
 			answers = append(answers, h)
 		}
 	}
-	if mdns {
-		return // local service discovery chatter: not worth a label
-	}
-
 	var eps []uint32
 	answerStrs := make([]string, 0, len(answers))
 	for _, a := range answers {
@@ -159,6 +155,10 @@ func (e *Engine) handleDNS(fl *flow, p *decode.Packet, _ bool) {
 		if ep := e.eps[a]; ep != nil {
 			eps = append(eps, ep.id)
 		}
+	}
+
+	if mdns {
+		return // local service discovery: names learned, but not worth a label
 	}
 
 	// The stub resolver and its upstream query both show up; report a name

@@ -15,6 +15,7 @@ const maxFlows = 200_000
 // handleFrame is the hot path: called for every captured frame.
 func (e *Engine) handleFrame(f *capture.Frame) {
 	e.frames.Add(1)
+	e.pktTS = f.TS
 	if f.TS > e.now {
 		e.now = f.TS
 	}
@@ -69,9 +70,9 @@ func (e *Engine) handleFrame(f *capture.Frame) {
 		}
 		fl = e.newFlow(key, p, out)
 	}
-	fl.last = e.now
+	fl.last = max(fl.last, e.pktTS)
 	ep := fl.ep
-	ep.last = e.now
+	ep.last = max(ep.last, e.pktTS)
 	if out {
 		fl.bytesOut += size
 		fl.pktsOut++
@@ -109,7 +110,7 @@ func (e *Engine) handleFrame(f *capture.Frame) {
 	if len(p.Payload) > 0 {
 		e.inspect(fl, p, out)
 	}
-	e.shots.add(fl, uint32(min(size, 1<<32-1)), !out, e.now)
+	e.shots.add(fl, uint32(min(size, 1<<32-1)), !out, e.pktTS)
 }
 
 func isDNSPort(p uint16) bool { return p == 53 || p == 5353 || p == 5355 }
@@ -176,8 +177,8 @@ func (e *Engine) newFlow(key flowKey, p *decode.Packet, out bool) *flow {
 		id:      e.nextFlow,
 		key:     key,
 		out:     out,
-		first:   e.now,
-		last:    e.now,
+		first:   e.pktTS,
+		last:    e.pktTS,
 		dirty:   true,
 		app:     classifyPorts(key.proto, key.local.Port(), key.remote.Port()),
 		shotIdx: [2]int32{-1, -1},
@@ -224,7 +225,7 @@ func (e *Engine) endpoint(ip netip.Addr) *endpoint {
 		return ep
 	}
 	e.nextEP++
-	ep := &endpoint{id: e.nextEP, ip: ip, first: e.now, last: e.now, dirty: true}
+	ep := &endpoint{id: e.nextEP, ip: ip, first: e.pktTS, last: e.pktTS, dirty: true}
 	ep.scope = scopeOf(ip, e.local.has(ip))
 	e.locate(ep)
 	if names := e.pdns.names(ip); len(names) > 0 {
@@ -286,7 +287,7 @@ func (e *Engine) trackTCP(fl *flow, p *decode.Packet, out bool) {
 		if fl.synTS != 0 {
 			fl.synRetrans = true // Karn: no RTT sample from a retransmitted SYN
 		}
-		fl.synTS = e.now
+		fl.synTS = e.pktTS
 		if fl.state == tcpNone {
 			fl.state, fl.out, fl.dirty = tcpSyn, out, true
 		}
@@ -299,10 +300,10 @@ func (e *Engine) trackTCP(fl *flow, p *decode.Packet, out bool) {
 			fl.isn, fl.haveISN = p.Ack-1, true
 		}
 		if fl.synTS != 0 && fl.synackTS == 0 && !fl.synRetrans && fl.out {
-			fl.rtt = float64(e.now-fl.synTS) / 1e6
+			fl.rtt = float64(e.pktTS-fl.synTS) / 1e6
 			fl.dirty = true
 		}
-		fl.synackTS = e.now
+		fl.synackTS = e.pktTS
 	case p.Flags&decode.FIN != 0:
 		if out {
 			fl.finOut = true
@@ -316,7 +317,7 @@ func (e *Engine) trackTCP(fl *flow, p *decode.Packet, out bool) {
 		if fl.state == tcpSyn || fl.state == tcpNone {
 			// Inbound connection: SYN/ACK (ours) → ACK (theirs) is the RTT.
 			if fl.state == tcpSyn && !fl.out && fromClient && fl.synackTS != 0 && fl.rtt == 0 {
-				fl.rtt = float64(e.now-fl.synackTS) / 1e6
+				fl.rtt = float64(e.pktTS-fl.synackTS) / 1e6
 			}
 			fl.state, fl.dirty = tcpEst, true
 		}
@@ -342,6 +343,16 @@ func (e *Engine) inspect(fl *flow, p *decode.Packet, out bool) {
 		return
 	}
 	fromClient := out == fl.out
+	// QUIC handshake RTT: the client's first Initial to the server's first
+	// long-header reply.
+	if fl.app == AppQUIC && fl.rtt == 0 && len(payload) > 0 && payload[0]&0x80 != 0 {
+		switch {
+		case fromClient && fl.synTS == 0:
+			fl.synTS = e.pktTS
+		case !fromClient && fl.synTS != 0:
+			fl.rtt, fl.dirty = float64(e.pktTS-fl.synTS)/1e6, true
+		}
+	}
 	if !fromClient || fl.payloads >= 8 {
 		if fl.hello != nil && fl.payloads >= 8 {
 			e.releaseHello(fl)
