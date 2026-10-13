@@ -15,7 +15,7 @@
 ![deps](https://img.shields.io/badge/dependencies-x%2Fsys%20only-success)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
-![Telluric: a DGA attack in progress — generated domains failing to resolve over the globe, DEFCON 2](docs/media/hero.jpg)
+![Telluric: an mtr traceroute drawn hop by hop from Frankfurt to San Francisco while malware's generated domains fail to resolve — DEFCON 2](docs/media/hero.jpg)
 
 </div>
 
@@ -30,9 +30,9 @@ something is wrong, the globe turns red.
 *Telluric currents are the electric currents that flow through the Earth.
 These are yours.*
 
-| The alert theatre: an exfiltration in progress | DEFCON 1, with real night-side city lights |
+| The alert theatre: an exfiltration, caught and named | `mtr` across the Atlantic, reconstructed from the wire |
 |---|---|
-| ![Alert theatre](docs/media/alert-theatre.jpg) | ![DEFCON 1](docs/media/defcon-1.jpg) |
+| ![Alert theatre](docs/media/alert-theatre.jpg) | ![Traceroute](docs/media/traceroute.jpg) |
 
 *Every frame above is the real engine running `--demo`: synthetic packets
 go through the same decoders and detectors as live traffic.*
